@@ -1,0 +1,39 @@
+name: Manual Rollback
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to rollback'
+        required: true
+        type: choice
+        options:
+          - staging
+          - production
+      tag:
+        description: 'Release tag to rollback to (e.g., v1.2.0)'
+        required: true
+        type: string
+      app-name:
+        description: 'App name for artifact'
+        required: false
+        type: string
+        default: 'launchpad'
+
+jobs:
+  rollback:
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.environment == 'production' && 'production' || null }}
+    permissions:
+      contents: read
+      deployments: write
+    steps:
+      - name: Deploy to Cloudflare
+        uses: centrifuge/github-actions-lib/apps-v3/actions/deploy-app@main
+        with:
+          environment: ${{ github.event.inputs.environment }}
+          build-mode: mainnet
+          release-tag: ${{ github.event.inputs.tag }}
+          app-name: ${{ github.event.inputs.app-name }}
+
+
