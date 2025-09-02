@@ -1,0 +1,126 @@
+name: Deploy App
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        description: 'Environment (dev, demo, staging, prod)'
+        required: true
+        type: string
+      app-name:
+        description: 'Prefix for build artifact names' # This need to be the same as ./build-app
+        required: true
+        type: string
+      wrangler-version:
+        description: 'Wrangler version to use'
+        required: false
+        type: string
+        default: '4.33.1'
+      deployment-environment:
+        description: 'GitHub environment name for deployment protection'
+        required: false
+        type: string
+      deployment-url:
+        description: 'URL to set for the deployment environment'
+        required: false
+        type: string
+    secrets:
+      cloudflare-api-token:
+        description: 'Cloudflare API token'
+        required: true
+      cloudflare-account-id:
+        description: 'Cloudflare account ID'
+        required: true
+      github-token:
+        description: 'GitHub token'
+        required: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      deployments: write
+      id-token: write
+    environment: ${{ inputs.deployment-environment || null }}
+    outputs:
+      deployment-url: ${{ steps.deploy.outputs.deployment-url }}
+    steps:
+      - name: '📥 Checkout Code'
+        uses: actions/checkout@v4
+
+      - name: '📦 Download Build Artifact'
+        if: inputs.environment != 'prod'
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ inputs.app-name }}-build-${{ github.sha }}
+          path: ./dist
+      
+      - name: '📦 Setup pnpm (for Wrangler)'
+        uses: pnpm/action-setup@v3
+        with:
+          version: '10'
+
+      - name: '📦 Install Wrangler'
+        shell: sh
+        run: |
+          npm install -g wrangler@${{ inputs.wrangler-version }}
+
+      - name: '⚙️ Determine wrangler command'
+        id: wrangler-command
+        shell: sh
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ inputs.cloudflare-account-id }}
+          CLOUDFLARE_API_TOKEN: ${{ inputs.cloudflare-api-token }}
+        run: |
+          # Map workflow environment names to wrangler environment names
+          if [ "${{ inputs.environment }}" = "demo" ]; then
+            WRANGLER_ENV="dev"
+          elif [ "${{ inputs.environment }}" = "staging" ]; then
+            WRANGLER_ENV="prod"
+          else
+            WRANGLER_ENV="${{ inputs.environment }}"
+          fi
+          
+          if [ "${{ inputs.environment }}" = "staging" ]; then
+            # Staging: Upload with tag and preview-alias
+            SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
+            CMD="versions upload --env $WRANGLER_ENV --tag ${{ github.ref_name }} --message \"Deployed commit: $SHORT_SHA\" --preview-alias staging"
+          elif [ "${{ inputs.environment }}" = "prod" ]; then
+            # Production: Deploy existing version by tag
+            # First, get the version ID for the tag using JSON output
+            WORKER_NAME=$(grep -A1 "\[env.prod\]" wrangler.toml | grep "name" | cut -d'"' -f2)
+            VERSION_ID=$(wrangler versions list --name $WORKER_NAME --env $WRANGLER_ENV --json | jq -r ".[] | select(.annotations.\"workers/tag\" == \"${{ github.ref_name }}\") | .id" | head -1)
+            if [ -n "$VERSION_ID" ] && [ "$VERSION_ID" != "null" ]; then
+              CMD="versions deploy $VERSION_ID@100% --env $WRANGLER_ENV --yes"
+            fi
+          elif [ "${{ inputs.environment }}" = "dev" ]; then
+            # PR: Upload with PR info
+            SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
+            CMD="versions upload --env $WRANGLER_ENV --tag $SHORT_SHA --message \"PR #${{ github.event.pull_request.number }} - $SHORT_SHA\""
+          elif [ "${{ inputs.environment }}" = "demo" ]; then
+            # Demo: Direct deploy
+            CMD="deploy --env $WRANGLER_ENV"
+          else
+            echo "Error: Environment '${{ inputs.environment }}' is not defined or supported."
+            exit 1
+          fi
+          echo "Wrangler command: $CMD"
+          echo "cmd=$CMD" >> $GITHUB_OUTPUT
+          echo "wrangler-env=$WRANGLER_ENV" >> $GITHUB_OUTPUT
+
+      - name: '🚀 Deploy to Cloudflare'
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ inputs.cloudflare-api-token }}
+          accountId: ${{ inputs.cloudflare-account-id }}
+          gitHubToken: ${{ inputs.github-token }}
+          command: ${{ steps.wrangler-command.outputs.cmd }}
+          wranglerVersion: ${{ inputs.wrangler-version }}
+        id: deploy
+
+      - name: '🔗 Handle Missing Preview URLs'
+        if: steps.deploy.outputs.deployment-url == ''
+        shell: sh
+        run: |
+          echo "::warning::Preview URLs disabled for ${{ steps.wrangler-command.outputs.wrangler-env }}. %0A Please enable from https://dash.cloudflare.com/${{ inputs.cloudflare-account_id }}/workers-and-pages"

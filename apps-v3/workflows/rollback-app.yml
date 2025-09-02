@@ -1,0 +1,76 @@
+name: Rollback App
+
+on:
+  workflow_call:
+    inputs:
+      tag:
+        description: 'Release tag to roll back to (e.g., v1.2.0)'
+        required: true
+        type: string
+      app-name:
+        description: 'Application folder name containing wrangler.toml'
+        required: true
+        type: string
+        default: 'launchpad'
+      wrangler-version:
+        description: 'Wrangler version to use'
+        required: false
+        type: string
+        default: '4.33.1'
+    secrets:
+      cloudflare-api-token:
+        description: 'Cloudflare API token'
+        required: true
+      cloudflare-account-id:
+        description: 'Cloudflare account id'
+        required: true
+
+jobs:
+  rollback-and-deploy:
+    name: 'Roll Back to ${{ inputs.tag }} on Production'
+    runs-on: ubuntu-latest
+    environment: prod
+    steps:
+      - name: '📥 Checkout code from release tag'
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag }}
+
+      - name: '📦 Install Wrangler'
+        shell: sh
+        run: npm install -g wrangler@${{ inputs.wrangler-version }}
+
+      - name: '🔍 Check Cloudflare for Tag'
+        id: check-tag
+        shell: sh
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.cloudflare-account-id }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.cloudflare-api-token }}
+        run: |
+          # Get the worker name from wrangler.toml
+          WORKER_NAME=$(grep -A1 "\[env.prod\]" wrangler.toml | grep "name" | cut -d'"' -f2)
+          
+          # Check if the tag exists in Cloudflare
+          VERSION_ID=$(wrangler versions list --name $WORKER_NAME --env prod --json | jq -r ".[] | select(.annotations.\"workers/tag\" == \"${{ inputs.tag }}\") | .id" | head -1)
+          
+          if [ -n "$VERSION_ID" ] && [ "$VERSION_ID" != "null" ]; then
+            echo "✅ Found version $VERSION_ID for tag ${{ inputs.tag }}"
+            echo "version-id=$VERSION_ID" >> $GITHUB_OUTPUT
+          else
+            echo "❌ Error: No version found for tag ${{ inputs.tag }}"
+            echo "Available tags:"
+            wrangler versions list --name $WORKER_NAME --env prod --json | jq -r ".[].annotations.\"workers/tag\""
+            exit 1
+          fi
+
+      - name: '🚀 Deploy to Cloudflare'
+        shell: sh
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.cloudflare-api-token }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.cloudflare-account-id }}
+        run: |
+          WORKER_NAME=$(grep -A1 "\[env.prod\]" wrangler.toml | grep "name" | cut -d'"' -f2)
+          
+          # Production: Deploy existing version by tag to 100% traffic
+          wrangler versions deploy ${{ steps.check-tag.outputs.version-id }}@100% --env prod --yes
+          echo "✅ Successfully rolled back to ${{ inputs.tag }} on production (100% traffic)"

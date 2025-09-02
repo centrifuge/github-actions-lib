@@ -1,0 +1,77 @@
+name: Basic Checks
+
+on:
+  workflow_call:
+    inputs:
+      node-version:
+        description: 'Node.js version to use'
+        required: false
+        type: string
+        default: '20'
+      pnpm-version:
+        description: 'pnpm version to use'
+        required: false
+        type: string
+        default: '10'
+      install-command:
+        description: 'Command to install dependencies'
+        required: false
+        type: string
+        default: 'pnpm install --frozen-lockfile'
+      prettier-pattern:
+        description: 'Prettier glob pattern for files to check'
+        required: false
+        type: string
+        default: '**/*.{ts,tsx,js,jsx,json,md}'
+      lint-command:
+        description: 'Command to run linting'
+        required: false
+        type: string
+        default: 'pnpm run lint'
+      run-audit:
+        description: 'Whether to run pnpm audit'
+        required: false
+        type: boolean
+        default: true
+      audit-level:
+        description: 'Audit level for pnpm audit'
+        required: false
+        type: string
+        default: 'moderate'
+
+jobs:
+  basic-checks:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: '📥 Checkout Code'
+        uses: actions/checkout@v4
+      
+      - name: '📦 Setup pnpm'
+        uses: pnpm/action-setup@v3
+        with:
+          version: ${{ inputs.pnpm-version }}
+      
+      - name: '🟢 Setup Node.js'
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node-version }}
+          cache: 'pnpm'
+      
+      - name: '📥 Install dependencies'
+        shell: sh
+        run: ${{ inputs.install-command }}
+      
+      - name: '🧹 Check code formatting'
+        shell: sh
+        run: pnpm dlx prettier --check "${{ inputs.prettier-pattern }}"
+      
+      - name: '🔍 Lint'
+        shell: sh
+        run: ${{ inputs.lint-command }}
+      
+      - name: '🔐 Audit dependencies with pnpm'
+        if: ${{ inputs.run-audit }}
+        shell: sh
+        run: pnpm audit --audit-level ${{ inputs.audit-level }}

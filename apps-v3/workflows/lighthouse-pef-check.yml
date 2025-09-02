@@ -1,0 +1,37 @@
+name: Lighthouse Performance Check
+
+on:
+  workflow_call:
+    inputs:
+      deployment-url:
+        description: 'URL of the deployed application to test'
+        required: true
+        type: string
+      lhci-config:
+        description: 'Path to LHCI config file'
+        required: false
+        type: string
+        default: 'lighthouserc.json'
+    secrets:
+      github-token:
+        description: 'GitHub token for LHCI'
+        required: true
+
+jobs:
+  performance-score:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+      statuses: write
+      checks: write
+    steps:
+      - name: '📥 Checkout Code'
+        uses: actions/checkout@v4
+
+      - name: '📊 Performance Test with Lighthouse'
+        run: |
+          npm install -g @lhci/cli
+          lhci autorun --config=${{ inputs.lhci-config }} --collect.url=${{ inputs.deployment-url }}
+        env:
+          LHCI_GITHUB_TOKEN: ${{ inputs.github-token }}
