@@ -29,12 +29,17 @@ jobs:
   rollback-and-deploy:
     name: 'Roll Back to ${{ inputs.tag }} on Production'
     runs-on: ubuntu-latest
-    environment: prod
+    environment: production
     steps:
       - name: '📥 Checkout code from release tag'
         uses: actions/checkout@v4
         with:
           ref: ${{ inputs.tag }}
+
+      - name: '🟢 Setup Node.js'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
 
       - name: '📦 Install Wrangler'
         shell: sh

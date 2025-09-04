@@ -42,7 +42,7 @@ jobs:
       contents: read
       deployments: write
       id-token: write
-    environment: ${{ inputs.deployment-environment || null }}
+    environment: ${{ inputs.deployment-environment || '' }}
     outputs:
       deployment-url: ${{ steps.deploy.outputs.deployment-url }}
     steps:
@@ -56,22 +56,21 @@ jobs:
           name: ${{ inputs.app-name }}-build-${{ github.sha }}
           path: ./dist
       
-      - name: '📦 Setup pnpm (for Wrangler)'
-        uses: pnpm/action-setup@v3
+      - name: '🟢 Setup Node.js'
+        uses: actions/setup-node@v4
         with:
-          version: '10'
+          node-version: '20'
 
       - name: '📦 Install Wrangler'
         shell: sh
-        run: |
-          npm install -g wrangler@${{ inputs.wrangler-version }}
+        run: npm install -g wrangler@${{ inputs.wrangler-version }}
 
       - name: '⚙️ Determine wrangler command'
         id: wrangler-command
         shell: sh
         env:
-          CLOUDFLARE_ACCOUNT_ID: ${{ inputs.cloudflare-account-id }}
-          CLOUDFLARE_API_TOKEN: ${{ inputs.cloudflare-api-token }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.cloudflare-account-id }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.cloudflare-api-token }}
         run: |
           # Map workflow environment names to wrangler environment names
           if [ "${{ inputs.environment }}" = "demo" ]; then
@@ -123,4 +122,4 @@ jobs:
         if: steps.deploy.outputs.deployment-url == ''
         shell: sh
         run: |
-          echo "::warning::Preview URLs disabled for ${{ steps.wrangler-command.outputs.wrangler-env }}. %0A Please enable from https://dash.cloudflare.com/${{ inputs.cloudflare-account_id }}/workers-and-pages"
+          echo "::warning::Preview URLs disabled for ${{ steps.wrangler-command.outputs.wrangler-env }}. %0A Please enable from https://dash.cloudflare.com/${{ inputs.cloudflare-account-id }}/workers-and-pages"
