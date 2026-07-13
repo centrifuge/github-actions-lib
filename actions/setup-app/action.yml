@@ -1,0 +1,27 @@
+name: 'Setup App Toolchain'
+description: >-
+  Node.js + pnpm bootstrap shared by all app pipelines. pnpm is resolved from
+  the app's package.json "packageManager" field, so the pnpm version is owned
+  by each app repo, not by this library.
+
+inputs:
+  node-version:
+    description: 'Node.js version to use'
+    required: true
+  cache:
+    description: "setup-node cache option ('pnpm' or '' to disable)"
+    required: false
+    default: 'pnpm'
+
+runs:
+  using: 'composite'
+  steps:
+    - name: '📦 Setup pnpm'
+      uses: pnpm/action-setup@a3252b78c470c02df07e9d59298aecedc3ccdd6d # v3.0.0
+      # No `version:` on purpose — resolved from package.json "packageManager".
+
+    - name: '🟢 Setup Node.js'
+      uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+      with:
+        node-version: ${{ inputs.node-version }}
+        cache: ${{ inputs.cache }}

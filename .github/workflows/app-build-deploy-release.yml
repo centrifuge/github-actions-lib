@@ -1,0 +1,235 @@
+name: App Build & Deploy Release
+
+# Reusable release pipeline for Centrifuge app repos, triggered by the
+# caller's `release` events:
+#   prereleased → mainnet build (bundle attached to the GitHub release)
+#                 → deploy to staging (wrangler `versions upload
+#                   --preview-alias staging`, tagged with the release tag)
+#                 → optionally deploy to public-demo
+#   released    → promote the staged version to production
+#                 (`versions deploy <id>@100%` looked up by tag)
+#
+# A tag MUST go through `prereleased` before `released`: production deploys
+# the version that staging uploaded, and the release bundle only exists once
+# the prerelease build ran.
+#
+# GitHub Environments (`staging`, `public-demo`, `production`) resolve
+# against the CALLER's repo. The caller's job needs a permissions ceiling of
+# at least: contents: write (release bundle upload), deployments: write.
+
+on:
+  workflow_call:
+    inputs:
+      app-name:
+        description: 'Prefix for run-scoped build artifact names'
+        required: true
+        type: string
+      bundle-name-prefix:
+        description: 'Prefix for the release bundle zip name; defaults to app-name'
+        required: false
+        type: string
+        default: ''
+      node-version:
+        description: 'Node.js version to use'
+        required: true
+        type: string
+      build-args:
+        description: 'Extra arguments passed to `pnpm build`'
+        required: false
+        type: string
+        default: '--mode mainnet'
+      build-env:
+        description: 'Multiline KEY=VALUE pairs exported to the build step environment'
+        required: false
+        type: string
+        default: ''
+      pool-cache-base-url:
+        description: 'Optional account-specific pool-cache Worker base URL'
+        required: false
+        type: string
+        default: ''
+      cloudflare-account-id:
+        description: 'Cloudflare account ID (a repository variable, not a secret)'
+        required: true
+        type: string
+      wrangler-version:
+        description: 'Wrangler version to use'
+        required: false
+        type: string
+        default: '4.33.1'
+      deploy-public-demo:
+        description: 'Whether prereleases also deploy to the public-demo environment'
+        required: false
+        type: boolean
+        default: false
+      production-url:
+        description: 'Fixed production URL for the GitHub deployment record (falls back to the wrangler deployment URL)'
+        required: false
+        type: string
+        default: ''
+    secrets:
+      cloudflare-api-token:
+        description: 'Cloudflare API token'
+        required: true
+    outputs:
+      staging-url:
+        description: 'Staging deployment URL (prereleased only)'
+        value: ${{ jobs.deploy-staging.outputs.deployment-url }}
+      production-url:
+        description: 'Production deployment URL (released only)'
+        value: ${{ jobs.deploy-production.outputs.deployment-url }}
+
+jobs:
+  # One mainnet build per release, shared by the deploy jobs below via
+  # `needs: build`. `build-app` uploads the artifact as
+  # `<app-name>-build-<sha>`, so don't add a second build job on the same
+  # trigger in another workflow — two concurrent uploads of the same artifact
+  # name fail.
+  build:
+    runs-on: ubuntu-latest
+    if: github.event.action == 'prereleased'
+    environment: staging
+    permissions:
+      # `build-app` runs `gh release upload` to attach the built bundle to the release.
+      contents: write
+    steps:
+      - name: '📥 Checkout Code from Release Tag'
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          # Don't persist GITHUB_TOKEN in .git/config. Steps that need it
+          # receive it explicitly (build-app takes `github-token`), so nothing
+          # here should read it from git config.
+          persist-credentials: false
+
+      - name: '📥 Checkout Pipeline Library'
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: .lib
+          persist-credentials: false
+
+      - name: '🔨 Build App'
+        id: build
+        uses: ./.lib/actions/build-app
+        with:
+          app-name: ${{ inputs.app-name }}
+          bundle-name-prefix: ${{ inputs.bundle-name-prefix }}
+          node-version: ${{ inputs.node-version }}
+          build-args: ${{ inputs.build-args }}
+          build-env: ${{ inputs.build-env }}
+          pool-cache-base-url: ${{ inputs.pool-cache-base-url }}
+          github-token: ${{ github.token }}
+
+  deploy-staging:
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.event.action == 'prereleased'
+    environment:
+      name: staging
+      url: ${{ steps.deploy.outputs.deployment-url }}
+    permissions:
+      # Checkout only; the built bundle arrives via download-artifact.
+      contents: read
+      # wrangler-action records a GitHub deployment for the environment URL.
+      deployments: write
+    outputs:
+      deployment-url: ${{ steps.deploy.outputs.deployment-url }}
+    steps:
+      - name: '📥 Checkout Code'
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+
+      - name: '📥 Checkout Pipeline Library'
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: .lib
+          persist-credentials: false
+
+      - name: '🚀 Deploy App to Staging'
+        id: deploy
+        uses: ./.lib/actions/deploy-app
+        with:
+          environment: staging
+          app-name: ${{ inputs.app-name }}
+          wrangler-version: ${{ inputs.wrangler-version }}
+          cloudflare-api-token: ${{ secrets.cloudflare-api-token }}
+          cloudflare-account-id: ${{ inputs.cloudflare-account-id }}
+          github-token: ${{ github.token }}
+
+  deploy-public-demo:
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.event.action == 'prereleased' && inputs.deploy-public-demo
+    environment:
+      name: public-demo
+      url: ${{ steps.deploy.outputs.deployment-url }}
+    permissions:
+      contents: read
+      deployments: write
+    steps:
+      - name: '📥 Checkout Code'
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+
+      - name: '📥 Checkout Pipeline Library'
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: .lib
+          persist-credentials: false
+
+      - name: '🚀 Deploy App to Public Demo'
+        id: deploy
+        uses: ./.lib/actions/deploy-app
+        with:
+          environment: public-demo
+          app-name: ${{ inputs.app-name }}
+          wrangler-version: ${{ inputs.wrangler-version }}
+          cloudflare-api-token: ${{ secrets.cloudflare-api-token }}
+          cloudflare-account-id: ${{ inputs.cloudflare-account-id }}
+          github-token: ${{ github.token }}
+
+  # Runs on `released`, where deploy-app skips download-artifact and promotes
+  # the version staged for this tag — so this job intentionally has no
+  # `needs: build`.
+  deploy-production:
+    runs-on: ubuntu-latest
+    if: github.event.action == 'released'
+    environment:
+      name: production
+      url: ${{ inputs.production-url || steps.deploy.outputs.deployment-url }}
+    permissions:
+      contents: read
+      deployments: write
+    outputs:
+      deployment-url: ${{ steps.deploy.outputs.deployment-url }}
+    steps:
+      - name: '📥 Checkout Code'
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+
+      - name: '📥 Checkout Pipeline Library'
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: .lib
+          persist-credentials: false
+
+      - name: '🚀 Deploy App to Production'
+        id: deploy
+        uses: ./.lib/actions/deploy-app
+        with:
+          environment: prod
+          app-name: ${{ inputs.app-name }}
+          wrangler-version: ${{ inputs.wrangler-version }}
+          cloudflare-api-token: ${{ secrets.cloudflare-api-token }}
+          cloudflare-account-id: ${{ inputs.cloudflare-account-id }}
+          github-token: ${{ github.token }}

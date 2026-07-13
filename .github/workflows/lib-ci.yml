@@ -1,0 +1,60 @@
+name: Lib CI
+
+# This library is the trusted root of the app pipelines (consumers reference
+# it @main), so its own CI must stay strict: workflow schema validation,
+# SHA-pinning enforcement, and YAML lint on every change.
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  actionlint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+
+      - name: Run actionlint
+        env:
+          ACTIONLINT_VERSION: 1.7.7
+        run: |
+          bash <(curl -sSfL "https://raw.githubusercontent.com/rhysd/actionlint/v${ACTIONLINT_VERSION}/scripts/download-actionlint.bash") "$ACTIONLINT_VERSION"
+          # -ignore: actionlint's `job` context type model doesn't know the
+          # newer job.workflow_repository / job.workflow_sha properties yet —
+          # the GitHub-recommended way for a reusable workflow to check out
+          # its own repo (https://github.com/orgs/community/discussions/113568).
+          # Drop these once actionlint learns them.
+          ./actionlint -color \
+            -ignore 'property "workflow_repository" is not defined in object type' \
+            -ignore 'property "workflow_sha" is not defined in object type'
+
+  pinned-actions-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+
+      - name: Verify all GitHub Actions are SHA-pinned
+        uses: suzuki-shunsuke/pinact-action@cf51507d80d4d6522a07348e3d58790290eaf0b6 # v2.0.0
+        with:
+          skip_push: 'true'
+
+  yamllint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+
+      - name: Run yamllint
+        run: |
+          pip install --user yamllint
+          ~/.local/bin/yamllint -d "{extends: relaxed, rules: {line-length: disable}}" .github actions

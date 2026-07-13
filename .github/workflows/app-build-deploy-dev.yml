@@ -1,0 +1,148 @@
+name: App Build & Deploy Dev
+
+# Reusable test-environment pipeline for Centrifuge app repos:
+#   pull_request  → build (testnet) → deploy to the caller's `preview`
+#                   GitHub Environment (wrangler env `dev`) → optional Lighthouse
+#   push to main  → build (testnet) → deploy to the caller's `demo`
+#                   GitHub Environment (wrangler env `dev`, direct deploy)
+#
+# GitHub Environments (`preview`, `demo`) resolve against the CALLER's repo,
+# so protection rules and environment config stay per-app.
+
+on:
+  workflow_call:
+    inputs:
+      app-name:
+        description: 'Prefix for run-scoped build artifact names'
+        required: true
+        type: string
+      node-version:
+        description: 'Node.js version to use'
+        required: true
+        type: string
+      build-args:
+        description: 'Extra arguments passed to `pnpm build`'
+        required: false
+        type: string
+        default: '--mode testnet'
+      build-env:
+        description: 'Multiline KEY=VALUE pairs exported to the build step environment'
+        required: false
+        type: string
+        default: ''
+      cloudflare-account-id:
+        description: 'Cloudflare account ID (a repository variable, not a secret)'
+        required: true
+        type: string
+      wrangler-version:
+        description: 'Wrangler version to use'
+        required: false
+        type: string
+        default: '4.33.1'
+      run-lighthouse:
+        description: 'Whether to run the Lighthouse performance check on PR previews'
+        required: false
+        type: boolean
+        default: false
+      lighthouse-config:
+        description: 'Path to the LHCI config file in the caller repo'
+        required: false
+        type: string
+        default: 'lighthouserc.json'
+    secrets:
+      cloudflare-api-token:
+        description: 'Cloudflare API token'
+        required: true
+    outputs:
+      deployment-url:
+        description: 'URL of the deployed application'
+        value: ${{ jobs.deploy.outputs.deployment-url }}
+
+jobs:
+  build:
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    steps:
+      - name: '📥 Checkout Code'
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+
+      - name: '📥 Checkout Pipeline Library'
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: .lib
+          persist-credentials: false
+
+      - name: '🔨 Build App'
+        id: build
+        uses: ./.lib/actions/build-app
+        with:
+          app-name: ${{ inputs.app-name }}
+          node-version: ${{ inputs.node-version }}
+          build-args: ${{ inputs.build-args }}
+          build-env: ${{ inputs.build-env }}
+
+  deploy:
+    needs: build
+    permissions:
+      contents: read
+      deployments: write
+      id-token: write
+    runs-on: ubuntu-latest
+    environment:
+      name: ${{ github.event_name == 'pull_request' && 'preview' || 'demo' }}
+      url: ${{ steps.deploy.outputs.deployment-url }}
+    outputs:
+      deployment-url: ${{ steps.deploy.outputs.deployment-url }}
+    steps:
+      - name: '📥 Checkout Code'
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+
+      - name: '📥 Checkout Pipeline Library'
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: .lib
+          persist-credentials: false
+
+      - name: '🚀 Deploy App'
+        id: deploy
+        uses: ./.lib/actions/deploy-app
+        with:
+          environment: ${{ github.event_name == 'pull_request' && 'dev' || 'demo' }}
+          app-name: ${{ inputs.app-name }}
+          wrangler-version: ${{ inputs.wrangler-version }}
+          cloudflare-api-token: ${{ secrets.cloudflare-api-token }}
+          cloudflare-account-id: ${{ inputs.cloudflare-account-id }}
+          github-token: ${{ github.token }}
+
+  performance-score:
+    needs: deploy
+    if: ${{ inputs.run-lighthouse && github.event_name == 'pull_request' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+      statuses: write
+      checks: write
+    steps:
+      - name: '📥 Checkout Code'
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+
+      - name: '📊 Performance Test with Lighthouse'
+        env:
+          LHCI_GITHUB_TOKEN: ${{ github.token }}
+          LHCI_CONFIG: ${{ inputs.lighthouse-config }}
+          DEPLOYMENT_URL: ${{ needs.deploy.outputs.deployment-url }}
+        run: |
+          npm install -g @lhci/cli
+          lhci autorun --config="$LHCI_CONFIG" --collect.url="$DEPLOYMENT_URL"

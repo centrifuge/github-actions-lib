@@ -1,0 +1,133 @@
+name: 'Build App'
+description: >-
+  Build a Vite app with the shared toolchain and publish its artifacts.
+  Uploads the build as `<app-name>-build-<sha>` for same-run deploy jobs, and
+  on prerelease events attaches `<bundle-name-prefix>-bundle<tag>.zip` to the
+  GitHub release. Requires this library to be checked out at `.lib` (see the
+  repository README).
+
+inputs:
+  app-name:
+    description: 'Prefix for run-scoped build artifact names (e.g. invest-v3, launchpad)'
+    required: true
+  bundle-name-prefix:
+    description: 'Prefix for the release bundle zip name; defaults to app-name'
+    required: false
+    default: ''
+  node-version:
+    description: 'Node.js version to use'
+    required: true
+  build-args:
+    description: 'Extra arguments passed to `pnpm build` (e.g. --mode testnet)'
+    required: false
+    default: ''
+  build-env:
+    description: 'Multiline KEY=VALUE pairs exported to the build step environment'
+    required: false
+    default: ''
+  pool-cache-base-url:
+    description: 'Optional account-specific pool-cache Worker base URL (exported as VITE_POOL_CACHE_BASE_URL)'
+    required: false
+    default: ''
+  github-token:
+    description: 'GitHub token (required on release events for gh release view/upload)'
+    required: false
+    default: ''
+
+outputs:
+  artifact-name:
+    description: 'Name of the uploaded run-scoped build artifact'
+    value: ${{ inputs.app-name }}-build-${{ github.sha }}
+  bundle-name:
+    description: 'Name of the release bundle zip (release events only)'
+    value: ${{ steps.check-artifact.outputs.artifact-name }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: '🧰 Setup Toolchain'
+      uses: ./.lib/actions/setup-app
+      with:
+        node-version: ${{ inputs.node-version }}
+
+    - name: '🔍 Check if Build Artifact Already Exists'
+      if: github.event_name == 'release'
+      id: check-artifact
+      shell: sh
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        GH_REF_NAME: ${{ github.ref_name }}
+        GH_REPOSITORY: ${{ github.repository }}
+        BUNDLE_PREFIX: ${{ inputs.bundle-name-prefix || inputs.app-name }}
+      run: |
+        ARTIFACT_NAME="${BUNDLE_PREFIX}-bundle${GH_REF_NAME}.zip"
+        echo "artifact-name=$ARTIFACT_NAME" >> $GITHUB_OUTPUT
+        if [ -n "$(gh release view "$GH_REF_NAME" --repo "$GH_REPOSITORY" --json assets --jq '.assets[] | select(.name == "'"$ARTIFACT_NAME"'")')" ]; then
+          echo "::info::✅ Build artifact already exists, skipping build: $ARTIFACT_NAME"
+          echo "skip_build=true" >> $GITHUB_OUTPUT
+        else
+          echo "::info::🔄 Build artifact not found, building $ARTIFACT_NAME"
+          echo "skip_build=false" >> $GITHUB_OUTPUT
+        fi
+
+    - name: '📥 Install Dependencies'
+      shell: sh
+      run: pnpm install --frozen-lockfile
+
+    - name: '🎨 Generate Chakra UI Types'
+      if: ${{ github.event_name != 'release' || steps.check-artifact.outputs.skip_build != 'true' }}
+      shell: sh
+      run: pnpm theme:typings
+
+    - name: '🌱 Apply Build Environment'
+      if: ${{ inputs.build-env != '' }}
+      shell: sh
+      env:
+        BUILD_ENV: ${{ inputs.build-env }}
+      run: |
+        # Each non-empty line must be KEY=VALUE with a valid shell identifier as KEY.
+        echo "$BUILD_ENV" | while IFS= read -r line; do
+          [ -z "$line" ] && continue
+          if ! echo "$line" | grep -Eq '^[A-Za-z_][A-Za-z0-9_]*='; then
+            echo "::error::Invalid build-env line (expected KEY=VALUE): $line"
+            exit 1
+          fi
+          echo "$line" >> "$GITHUB_ENV"
+        done
+
+    - name: '🔨 Build App'
+      if: ${{ github.event_name != 'release' || steps.check-artifact.outputs.skip_build != 'true' }}
+      id: build
+      shell: sh
+      env:
+        BUILD_ARGS: ${{ inputs.build-args }}
+        POOL_CACHE_BASE_URL: ${{ inputs.pool-cache-base-url }}
+      run: |
+        if [ -n "$POOL_CACHE_BASE_URL" ]; then
+          export VITE_POOL_CACHE_BASE_URL="$POOL_CACHE_BASE_URL"
+        fi
+        pnpm build $BUILD_ARGS
+
+    - name: '📦 Upload Build Artifact'
+      if: ${{ steps.build.outcome == 'success' }}
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      with:
+        name: ${{ inputs.app-name }}-build-${{ github.sha }}
+        path: ./dist
+
+    - name: '📦 Upload Build Artifact to Release'
+      if: ${{ steps.build.outcome == 'success' && github.event.action == 'prereleased' }}
+      shell: sh
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        GH_REF_NAME: ${{ github.ref_name }}
+        GH_REPOSITORY: ${{ github.repository }}
+        ARTIFACT_NAME: ${{ steps.check-artifact.outputs.artifact-name }}
+      run: |
+        # Create a zip file of the dist folder
+        cd dist && zip -r "../$ARTIFACT_NAME" . && cd ..
+
+        # Upload to release using GitHub CLI
+        gh release upload "$GH_REF_NAME" "$ARTIFACT_NAME" \
+          --repo "$GH_REPOSITORY" \
+          --clobber
