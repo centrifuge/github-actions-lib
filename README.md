@@ -19,6 +19,7 @@ actions/
   setup-app/                    Node + pnpm bootstrap (pnpm version from package.json "packageManager")
   build-app/                    build + artifact upload (+ release bundle upload on prerelease)
   deploy-app/                   wrangler deploy per environment (dev/demo/public-demo/staging/prod)
+lighthouserc.json               shared LHCI config used by app-build-deploy-dev's performance job
 ```
 
 ## Security model — where secrets live
@@ -137,7 +138,9 @@ Every input/secret/output is documented inline in each workflow's
 - **`app-build-deploy-dev.yml`** — required: `app-name`, `node-version`,
   `cloudflare-account-id`; secret `cloudflare-api-token`. `build-env` takes
   multiline `KEY=VALUE` pairs for the build step. `run-lighthouse: true`
-  enables the LHCI job on PR previews. Output: `deployment-url`.
+  enables the LHCI job on PR previews, using this library's shared
+  `lighthouserc.json` by default; set `lighthouse-config` to a caller-repo path
+  to override. Output: `deployment-url`.
 - **`app-build-deploy-release.yml`** — same core contract plus
   `bundle-name-prefix` (release zip name, defaults to `app-name`),
   `pool-cache-base-url`, `deploy-public-demo`, `production-url`. Outputs:

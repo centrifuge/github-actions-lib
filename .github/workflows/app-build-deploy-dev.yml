@@ -45,10 +45,10 @@ on:
         type: boolean
         default: false
       lighthouse-config:
-        description: 'Path to the LHCI config file in the caller repo'
+        description: 'Path to an LHCI config file in the caller repo; empty uses the library''s shared config'
         required: false
         type: string
-        default: 'lighthouserc.json'
+        default: ''
     secrets:
       cloudflare-api-token:
         description: 'Cloudflare API token'
@@ -138,11 +138,22 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: '📥 Checkout Pipeline Library'
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: .lib
+          persist-credentials: false
+
       - name: '📊 Performance Test with Lighthouse'
         env:
           LHCI_GITHUB_TOKEN: ${{ github.token }}
+          # Empty input → the library's shared config (.lib/lighthouserc.json).
           LHCI_CONFIG: ${{ inputs.lighthouse-config }}
           DEPLOYMENT_URL: ${{ needs.deploy.outputs.deployment-url }}
         run: |
+          CONFIG="$LHCI_CONFIG"
+          [ -z "$CONFIG" ] && CONFIG=".lib/lighthouserc.json"
           npm install -g @lhci/cli
-          lhci autorun --config="$LHCI_CONFIG" --collect.url="$DEPLOYMENT_URL"
+          lhci autorun --config="$CONFIG" --collect.url="$DEPLOYMENT_URL"
