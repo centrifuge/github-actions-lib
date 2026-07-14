@@ -58,19 +58,24 @@ library at the exact commit being executed and calls composites through it:
 - uses: actions/checkout@<sha> # caller repo
 - uses: actions/checkout@<sha>
   with:
-    repository: ${{ job.workflow_repository }}  # this library
-    ref: ${{ job.workflow_sha }}                # the commit the caller's @ref resolved to
+    repository: centrifuge/github-actions-lib
+    ref: ${{ github.job_workflow_sha }}   # the commit the caller's @ref resolved to
     path: .lib
 - uses: ./.lib/actions/build-app
 ```
 
-`job.workflow_sha` (the GitHub-recommended pattern for this — note that
-`github.job_workflow_sha` is NOT populated, see actions/runner#2417)
-guarantees workflows and composite actions are
-versioned atomically — `@main`, `@<sha>`, and `@my-test-branch` all just work.
-If you use the composite actions directly from your own workflow, you must
-check this repo out at `.lib` yourself (the composites reference
-`./.lib/actions/setup-app` internally).
+`github.job_workflow_sha` is the commit SHA of the reusable-workflow file being
+executed — i.e. exactly what the caller's `@ref` resolved to — so workflows and
+their composite actions are versioned atomically: `@main`, `@<sha>`, and
+`@my-test-branch` all check out matching composites with no edits. If you use
+the composite actions directly from your own workflow, you must check this repo
+out at `.lib` yourself (the composites reference `./.lib/actions/setup-app`
+internally).
+
+> `job.workflow_repository` / `job.workflow_sha` do **not** exist — the `job`
+> context only has `status`/`container`/`services`, and referencing a missing
+> property there makes the reusable workflow fail to compile (`startup_failure`
+> for every caller). Use the `github`-context property above.
 
 ## Usage
 

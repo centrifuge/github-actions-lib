@@ -76,8 +76,8 @@ jobs:
       - name: '📥 Checkout Pipeline Library'
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
-          repository: ${{ job.workflow_repository }}
-          ref: ${{ job.workflow_sha }}
+          repository: centrifuge/github-actions-lib
+          ref: ${{ github.job_workflow_sha }}
           path: .lib
           persist-credentials: false
 

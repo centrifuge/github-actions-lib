@@ -26,14 +26,13 @@ jobs:
           ACTIONLINT_VERSION: 1.7.7
         run: |
           bash <(curl -sSfL "https://raw.githubusercontent.com/rhysd/actionlint/v${ACTIONLINT_VERSION}/scripts/download-actionlint.bash") "$ACTIONLINT_VERSION"
-          # -ignore: actionlint's `job` context type model doesn't know the
-          # newer job.workflow_repository / job.workflow_sha properties yet —
-          # the GitHub-recommended way for a reusable workflow to check out
-          # its own repo (https://github.com/orgs/community/discussions/113568).
-          # Drop these once actionlint learns them.
+          # -ignore: github.job_workflow_sha is a real, documented github-context
+          # property (the commit SHA of the reusable workflow file) used to check
+          # out this library at the exact version the caller pinned — but
+          # actionlint's github-context model doesn't include it yet, so it
+          # false-positives. Drop this once actionlint learns the property.
           ./actionlint -color \
-            -ignore 'property "workflow_repository" is not defined in object type' \
-            -ignore 'property "workflow_sha" is not defined in object type'
+            -ignore 'property "job_workflow_sha" is not defined in object type'
 
   pinned-actions-check:
     runs-on: ubuntu-latest
