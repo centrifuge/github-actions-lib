@@ -118,7 +118,7 @@ jobs:
             exit 1
           fi
           echo "Wrangler command: $CMD"
-          echo "cmd=$CMD" >> $GITHUB_OUTPUT
+          echo "cmd=$CMD" >> "$GITHUB_OUTPUT"
 
       - name: '🚀 Deploy to Cloudflare'
         uses: cloudflare/wrangler-action@9acf94ace14e7dc412b076f2c5c20b8ce93c79cd # v3.15.0
