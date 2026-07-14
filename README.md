@@ -10,7 +10,7 @@ consumer.
 
 ```
 .github/workflows/
-  app-ci-checks.yml             PR quality gate: prettier, lint, codespell, audit, OSV, TruffleHog, pinact
+  app-ci-checks.yml             PR quality gate: prettier, lint, codespell, audit, TruffleHog, pinact
   app-build-deploy-dev.yml      PR → preview deploy; push to main → demo deploy; optional Lighthouse
   app-build-deploy-release.yml  prereleased → staging (+ optional public-demo); released → production
   app-rollback.yml              manual rollback (prod: version traffic shift; staging: bundle re-upload)
@@ -173,9 +173,12 @@ Every input/secret/output is documented inline in each workflow's
 - **Artifacts are scoped to the workflow run.** `build-app` uploads
   `<app-name>-build-<sha>` and v4 artifact names are immutable per run —
   never trigger two builds for the same `app-name` in one run.
-- **Nesting budget**: `app-ci-checks.yml` already calls the OSV scanner's
-  reusable workflow (depth 3 of GitHub's max 4). Don't call `app-ci-checks`
-  from another reusable workflow.
+- **Don't nest reusable workflows here.** A reusable workflow that itself
+  calls another reusable workflow (e.g. the OSV scanner) fails the whole graph
+  at compile time (`startup_failure`). That's why the OSV scan lives as a
+  top-level job in each app's `ci-checks.yml` caller, not inside
+  `app-ci-checks.yml`. Compose via composite *actions* (as the build/deploy
+  workflows do), not nested `workflow_call`s.
 - **Pinning**: consumers reference `@main`. If your repo runs pinact, add an
   ignore for this library (see the apps' `.pinact.yaml`); everything *inside*
   this library is SHA-pinned and `lib-ci.yml` enforces that.

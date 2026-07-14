@@ -1,9 +1,15 @@
 name: App CI Checks
 
 # Reusable PR quality gate for Centrifuge app repos: formatting, lint,
-# codespell, dependency audit, OSV scan, secrets scan, and action-pinning
-# check. No secrets are required — everything runs on the caller's code with
-# the caller's default token.
+# codespell, dependency audit, secrets scan, and action-pinning check. No
+# secrets are required — everything runs on the caller's code with the
+# caller's default token.
+#
+# NOTE: the OSV dependency scan is intentionally NOT here. It's a third-party
+# reusable workflow, and nesting a reusable workflow inside this reusable
+# workflow fails to compile (startup_failure). Each app calls
+# google/osv-scanner-action's reusable workflow directly at the top level of
+# its own ci-checks caller instead.
 
 on:
   workflow_call:
@@ -111,15 +117,6 @@ jobs:
         env:
           AUDIT_COMMAND: ${{ inputs.audit-command }}
         run: eval "$AUDIT_COMMAND"
-
-  osv-dependency-sec-check:
-    permissions:
-      contents: read
-      actions: read
-    uses: 'google/osv-scanner-action/.github/workflows/osv-scanner-reusable-pr.yml@90b209d0ea55cea1da9fc0c4e65782cc6acb6e2e' # v2.2.2
-    with:
-      fail-on-vuln: true
-      upload-sarif: false
 
   secrets-scan:
     runs-on: ubuntu-latest
