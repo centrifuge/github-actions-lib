@@ -1,0 +1,150 @@
+name: App CI Checks
+
+# Reusable PR quality gate for Centrifuge app repos: formatting, lint,
+# codespell, dependency audit, secrets scan, and action-pinning check. No
+# secrets are required — everything runs on the caller's code with the
+# caller's default token.
+#
+# NOTE: the OSV dependency scan is intentionally NOT here. It's a third-party
+# reusable workflow, and nesting a reusable workflow inside this reusable
+# workflow fails to compile (startup_failure). Each app calls
+# google/osv-scanner-action's reusable workflow directly at the top level of
+# its own ci-checks caller instead.
+
+on:
+  workflow_call:
+    inputs:
+      node-version:
+        description: 'Node.js version to use'
+        required: true
+        type: string
+      format-check-command:
+        description: 'Command that checks code formatting'
+        required: false
+        type: string
+        default: 'pnpm exec prettier --check "**/*.{ts,tsx,js,jsx,json,md}"'
+      lint-command:
+        description: 'Command that runs linting'
+        required: false
+        type: string
+        default: 'pnpm run lint'
+      audit-command:
+        description: 'Command that audits dependencies'
+        required: false
+        type: string
+        default: 'pnpm audit --audit-level moderate'
+      codespell-path:
+        description: 'Path scanned by codespell'
+        required: false
+        type: string
+        default: 'src'
+      codespell-skip:
+        description: 'Comma-separated globs codespell skips (app-specific)'
+        required: true
+        type: string
+      codespell-exclude-file:
+        description: 'File with lines codespell ignores'
+        required: false
+        type: string
+        default: ''
+      codespell-ignore-words:
+        description: 'Comma-separated words codespell ignores'
+        required: false
+        type: string
+        default: ''
+      codespell-blocking:
+        description: 'Whether codespell findings fail the job'
+        required: false
+        type: boolean
+        default: true
+      trufflehog-extra-args:
+        description: 'Extra arguments for the TruffleHog secrets scan'
+        required: false
+        type: string
+        default: '--exclude-globs "**/dist/**,**/build/**" --exclude-detectors Box --results=verified,unknown'
+      run-pinned-check:
+        description: 'Whether to verify all GitHub Actions are SHA-pinned'
+        required: false
+        type: boolean
+        default: true
+
+jobs:
+  basic-checks:
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    steps:
+      - name: '📥 Checkout Code'
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+
+      - name: '🧰 Setup Toolchain'
+        uses: centrifuge/github-actions-lib/actions/setup-app@main
+        with:
+          node-version: ${{ inputs.node-version }}
+
+      - name: Install dependencies
+        shell: sh
+        run: pnpm install --frozen-lockfile
+
+      - name: Check code formatting
+        shell: sh
+        env:
+          FORMAT_CHECK_COMMAND: ${{ inputs.format-check-command }}
+        run: eval "$FORMAT_CHECK_COMMAND"
+
+      - name: Lint
+        if: always()
+        shell: sh
+        env:
+          LINT_COMMAND: ${{ inputs.lint-command }}
+        run: eval "$LINT_COMMAND"
+
+      - name: Run codespell
+        if: always()
+        uses: codespell-project/actions-codespell@406322ec52dd7b488e48c1c4b82e2a8b3a1bf630 # v2.1
+        continue-on-error: ${{ !inputs.codespell-blocking }}
+        with:
+          path: ${{ inputs.codespell-path }}
+          skip: ${{ inputs.codespell-skip }}
+          exclude_file: ${{ inputs.codespell-exclude-file }}
+          ignore_words_list: ${{ inputs.codespell-ignore-words }}
+
+      - name: Audit dependencies with pnpm
+        if: always()
+        shell: sh
+        env:
+          AUDIT_COMMAND: ${{ inputs.audit-command }}
+        run: eval "$AUDIT_COMMAND"
+
+  secrets-scan:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: $((${{ github.event.pull_request.commits }}+2))
+          # Shallow clone to speed up the action
+          persist-credentials: false
+      - name: TruffleHog scan
+        uses: trufflesecurity/trufflehog@0c9fbff42893900f6cc15010c408d70d6013819c # v3.90.4
+        with:
+          extra_args: ${{ inputs.trufflehog-extra-args }}
+
+  pinned-actions-check:
+    if: ${{ inputs.run-pinned-check }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+
+      - name: Verify all GitHub Actions are SHA-pinned
+        uses: suzuki-shunsuke/pinact-action@cf51507d80d4d6522a07348e3d58790290eaf0b6 # v2.0.0
+        with:
+          skip_push: 'true'

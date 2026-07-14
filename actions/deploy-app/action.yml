@@ -1,0 +1,128 @@
+name: 'Deploy App'
+description: >-
+  Deploy an app build to Cloudflare Workers with environment-based wrangler
+  commands. Downloads the same-run `<app-name>-build-<sha>` artifact (except
+  for prod, which promotes the version already staged by tag). Requires this
+  library to be checked out at `.lib` (see the repository README).
+
+inputs:
+  environment:
+    description: 'Deployment environment (dev, demo, public-demo, staging, prod)'
+    required: true
+  app-name:
+    description: 'Prefix used for the run-scoped build artifact name (must match build-app)'
+    required: true
+  node-version:
+    description: 'Node.js version to use'
+    required: false
+    default: '20'
+  wrangler-version:
+    description: 'Wrangler version to use'
+    required: false
+    default: '4.33.1'
+  cloudflare-api-token:
+    description: 'Cloudflare API token'
+    required: true
+  cloudflare-account-id:
+    description: 'Cloudflare account ID'
+    required: true
+  github-token:
+    description: 'GitHub token (used by wrangler-action to record deployments)'
+    required: true
+
+outputs:
+  deployment-url:
+    description: 'URL of the deployed application'
+    value: ${{ steps.deploy.outputs.deployment-url }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: '🧰 Setup Toolchain'
+      uses: centrifuge/github-actions-lib/actions/setup-app@main
+      with:
+        node-version: ${{ inputs.node-version }}
+        cache: ''
+
+    - name: '📦 Download Build Artifact'
+      if: inputs.environment != 'prod'
+      uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+      with:
+        name: ${{ inputs.app-name }}-build-${{ github.sha }}
+        path: ./dist
+
+    - name: '📦 Install Wrangler'
+      shell: sh
+      env:
+        WRANGLER_VERSION: ${{ inputs.wrangler-version }}
+      run: npm install -g "wrangler@$WRANGLER_VERSION"
+
+    - name: '⚙️ Determine wrangler command'
+      id: wrangler-command
+      shell: sh
+      env:
+        CLOUDFLARE_ACCOUNT_ID: ${{ inputs.cloudflare-account-id }}
+        CLOUDFLARE_API_TOKEN: ${{ inputs.cloudflare-api-token }}
+        INPUT_ENVIRONMENT: ${{ inputs.environment }}
+        GITHUB_SHA: ${{ github.sha }}
+        GITHUB_REF_NAME: ${{ github.ref_name }}
+        PR_NUMBER: ${{ github.event.pull_request.number }}
+      run: |
+        # Map pipeline environment names to wrangler environment names
+        if [ "$INPUT_ENVIRONMENT" = "demo" ]; then
+          WRANGLER_ENV="dev"
+        elif [ "$INPUT_ENVIRONMENT" = "public-demo" ]; then
+          WRANGLER_ENV="demo"
+        elif [ "$INPUT_ENVIRONMENT" = "staging" ]; then
+          WRANGLER_ENV="prod"
+        else
+          WRANGLER_ENV="$INPUT_ENVIRONMENT"
+        fi
+
+        if [ "$INPUT_ENVIRONMENT" = "staging" ]; then
+          # Staging: Upload with tag and preview-alias
+          SHORT_SHA=$(echo "$GITHUB_SHA" | cut -c1-7)
+          CMD="versions upload --env $WRANGLER_ENV --tag $GITHUB_REF_NAME --message \"Deployed commit: $SHORT_SHA\" --preview-alias staging"
+        elif [ "$INPUT_ENVIRONMENT" = "prod" ]; then
+          # Production: Deploy the version already staged for this tag
+          WORKER_NAME=$(grep -A1 "\[env.prod\]" wrangler.toml | grep "name" | cut -d'"' -f2)
+          VERSION_ID=$(wrangler versions list --name "$WORKER_NAME" --env "$WRANGLER_ENV" --json | jq -r ".[] | select(.annotations.\"workers/tag\" == \"$GITHUB_REF_NAME\") | .id" | head -1)
+          if [ -n "$VERSION_ID" ] && [ "$VERSION_ID" != "null" ]; then
+            CMD="versions deploy $VERSION_ID@100% --env $WRANGLER_ENV --yes"
+          else
+            echo "Error: No version found for tag $GITHUB_REF_NAME"
+            exit 1
+          fi
+        elif [ "$INPUT_ENVIRONMENT" = "dev" ]; then
+          # PR: Upload with PR info
+          SHORT_SHA=$(echo "$GITHUB_SHA" | cut -c1-7)
+          CMD="versions upload --env $WRANGLER_ENV --tag $SHORT_SHA --message \"PR #$PR_NUMBER - $SHORT_SHA\""
+        elif [ "$INPUT_ENVIRONMENT" = "demo" ] || [ "$INPUT_ENVIRONMENT" = "public-demo" ]; then
+          # Demo environments: Direct deploy
+          CMD="deploy --env $WRANGLER_ENV"
+        else
+          echo "Error: Environment '$INPUT_ENVIRONMENT' is not defined or supported."
+          exit 1
+        fi
+        echo "Wrangler command: $CMD"
+        echo "cmd=$CMD" >> $GITHUB_OUTPUT
+        echo "wrangler-env=$WRANGLER_ENV" >> $GITHUB_OUTPUT
+
+    - name: '🚀 Deploy to Cloudflare'
+      uses: cloudflare/wrangler-action@9acf94ace14e7dc412b076f2c5c20b8ce93c79cd # v3.15.0
+      with:
+        apiToken: ${{ inputs.cloudflare-api-token }}
+        accountId: ${{ inputs.cloudflare-account-id }}
+        gitHubToken: ${{ inputs.github-token }}
+        command: ${{ steps.wrangler-command.outputs.cmd }}
+        wranglerVersion: ${{ inputs.wrangler-version }}
+      id: deploy
+
+    - name: '🔗 Handle Missing Preview URLs'
+      if: steps.deploy.outputs.deployment-url == ''
+      shell: sh
+      env:
+        WRANGLER_ENV: ${{ steps.wrangler-command.outputs.wrangler-env }}
+        CF_ACCOUNT_ID: ${{ inputs.cloudflare-account-id }}
+      run: |
+        echo "::warning::Preview URLs disabled for $WRANGLER_ENV. %0A Please enable from https://dash.cloudflare.com/$CF_ACCOUNT_ID/workers-and-pages"
