@@ -22,32 +22,6 @@ actions/
 lighthouserc.json               shared LHCI config used by app-build-deploy-dev's performance job
 ```
 
-## Security model — where secrets live
-
-**This repo is public and holds no secrets.** Every reusable workflow declares
-an explicit `secrets:` contract; callers pass their own repository secrets at
-call time. `secrets: inherit` is never used — a workflow here can only ever
-see what a caller explicitly hands it.
-
-Per consumer repo you need:
-
-| Kind | Name | Used by |
-|---|---|---|
-| Secret | `CLOUDFLARE_API_TOKEN` | all deploy/rollback workflows |
-| Variable | `CLOUDFLARE_ACCOUNT_ID` | all deploy/rollback workflows (passed as an input) |
-| Variable | `POOL_CACHE_BASE_URL` | apps-invest release builds only |
-| GitHub Environments | `preview`, `demo`, `staging`, `production` (+ `public-demo` for apps-management) | deploy jobs |
-
-Secrets must be **repository-level** (not environment-scoped): the caller job
-forwards them, and a caller job cannot read environment-scoped secrets.
-GitHub Environments, on the other hand, resolve inside the *called* jobs and
-always against the **caller's** repo — protection rules, reviewers, and
-environment URLs stay per-app.
-
-`GITHUB_TOKEN` is never declared as a workflow_call secret; called jobs use
-`github.token`, whose permissions are capped by the caller job's
-`permissions:` block (see the ceilings below).
-
 ## How the workflows find their composite actions
 
 The reusable workflows here reference this library's composite actions
