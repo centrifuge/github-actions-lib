@@ -39,7 +39,7 @@ runs:
   using: 'composite'
   steps:
     - name: '🧰 Setup Toolchain'
-      uses: ./.lib/actions/setup-app
+      uses: centrifuge/github-actions-lib/actions/setup-app@claude/github-actions-lib-centralize-rxomdp
       with:
         node-version: ${{ inputs.node-version }}
         cache: ''

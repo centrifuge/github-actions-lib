@@ -50,32 +50,41 @@ environment URLs stay per-app.
 
 ## How the workflows find their composite actions
 
-A reusable workflow cannot use `./actions/...` relative paths (those resolve
-against the *caller's* checkout). Instead, every job here checks out this
-library at the exact commit being executed and calls composites through it:
+The reusable workflows here reference this library's composite actions
+**cross-repo by full path**:
 
 ```yaml
-- uses: actions/checkout@<sha> # caller repo
-- uses: actions/checkout@<sha>
+- uses: actions/checkout@<sha>            # caller repo
+- uses: centrifuge/github-actions-lib/actions/build-app@main
   with:
-    repository: centrifuge/github-actions-lib
-    ref: ${{ github.job_workflow_sha }}   # the commit the caller's @ref resolved to
-    path: .lib
-- uses: ./.lib/actions/build-app
+    app-name: my-app
+    node-version: '24'
 ```
 
-`github.job_workflow_sha` is the commit SHA of the reusable-workflow file being
-executed — i.e. exactly what the caller's `@ref` resolved to — so workflows and
-their composite actions are versioned atomically: `@main`, `@<sha>`, and
-`@my-test-branch` all check out matching composites with no edits. If you use
-the composite actions directly from your own workflow, you must check this repo
-out at `.lib` yourself (the composites reference `./.lib/actions/setup-app`
-internally).
+Do **not** try to `actions/checkout` this library into a path and then
+`uses: ./that-path/actions/x`. A `uses: ./…` local reference in a reusable
+workflow is resolved against the reusable workflow's **own repo tree at its
+pinned ref**, at *compile* time — not against the runtime workspace. The path
+you checked out at runtime doesn't exist yet when GitHub resolves it, so the
+called workflow fails to compile and every caller gets a `startup_failure`
+with zero jobs. (The `job` context, likewise, only exposes
+`status`/`container`/`services` — there is no `job.workflow_repository` /
+`job.workflow_sha`, and `github.job_workflow_sha` cannot be used in a `uses:`
+value anyway, since `uses:` takes no expressions.)
 
-> `job.workflow_repository` / `job.workflow_sha` do **not** exist — the `job`
-> context only has `status`/`container`/`services`, and referencing a missing
-> property there makes the reusable workflow fail to compile (`startup_failure`
-> for every caller). Use the `github`-context property above.
+Because the composite `uses:` ref is a literal, the workflows and their
+composites are versioned together by that ref. Consumers pin the *workflow*
+`@main`; the workflows pin their composites `@main` too, so a library update
+moves both. The one place a runtime checkout of this repo is legitimate is the
+Lighthouse job, which reads the shared `lighthouserc.json` as a **file** (not
+an action) — a normal `actions/checkout` into `.lib`, no `uses: ./`.
+
+> **Migration note:** while this library is being rolled out, the intra-library
+> composite refs and the app callers point at the migration branch
+> (`…@claude/github-actions-lib-centralize-rxomdp`) so the pipeline can be
+> exercised from the app PRs before anything lands on `main`. Flip every such
+> ref to `@main` when merging (`grep -rl claude/github-actions-lib-centralize`
+> across `.github/` + `actions/`).
 
 ## Usage
 

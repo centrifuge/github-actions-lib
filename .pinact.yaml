@@ -1,0 +1,12 @@
+---
+# pinact configuration — https://github.com/suzuki-shunsuke/pinact
+#
+# The reusable workflows here reference this library's OWN composite actions
+# (centrifuge/github-actions-lib/actions/*) by a moving ref rather than a SHA,
+# so a single library commit ships matching workflows and composites. That is
+# a deliberate first-party self-reference; everything third-party stays
+# SHA-pinned (enforced by the lib-ci pinned-actions-check job).
+version: 3
+ignore_actions:
+  - name: centrifuge/github-actions-lib/.*
+    ref: main|claude/.*

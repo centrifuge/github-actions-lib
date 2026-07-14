@@ -101,17 +101,9 @@ jobs:
           # here should read it from git config.
           persist-credentials: false
 
-      - name: '📥 Checkout Pipeline Library'
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
-        with:
-          repository: centrifuge/github-actions-lib
-          ref: ${{ github.job_workflow_sha }}
-          path: .lib
-          persist-credentials: false
-
       - name: '🔨 Build App'
         id: build
-        uses: ./.lib/actions/build-app
+        uses: centrifuge/github-actions-lib/actions/build-app@claude/github-actions-lib-centralize-rxomdp
         with:
           app-name: ${{ inputs.app-name }}
           bundle-name-prefix: ${{ inputs.bundle-name-prefix }}
@@ -141,17 +133,9 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: '📥 Checkout Pipeline Library'
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
-        with:
-          repository: centrifuge/github-actions-lib
-          ref: ${{ github.job_workflow_sha }}
-          path: .lib
-          persist-credentials: false
-
       - name: '🚀 Deploy App to Staging'
         id: deploy
-        uses: ./.lib/actions/deploy-app
+        uses: centrifuge/github-actions-lib/actions/deploy-app@claude/github-actions-lib-centralize-rxomdp
         with:
           environment: staging
           app-name: ${{ inputs.app-name }}
@@ -176,17 +160,9 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: '📥 Checkout Pipeline Library'
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
-        with:
-          repository: centrifuge/github-actions-lib
-          ref: ${{ github.job_workflow_sha }}
-          path: .lib
-          persist-credentials: false
-
       - name: '🚀 Deploy App to Public Demo'
         id: deploy
-        uses: ./.lib/actions/deploy-app
+        uses: centrifuge/github-actions-lib/actions/deploy-app@claude/github-actions-lib-centralize-rxomdp
         with:
           environment: public-demo
           app-name: ${{ inputs.app-name }}
@@ -215,17 +191,9 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: '📥 Checkout Pipeline Library'
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
-        with:
-          repository: centrifuge/github-actions-lib
-          ref: ${{ github.job_workflow_sha }}
-          path: .lib
-          persist-credentials: false
-
       - name: '🚀 Deploy App to Production'
         id: deploy
-        uses: ./.lib/actions/deploy-app
+        uses: centrifuge/github-actions-lib/actions/deploy-app@claude/github-actions-lib-centralize-rxomdp
         with:
           environment: prod
           app-name: ${{ inputs.app-name }}

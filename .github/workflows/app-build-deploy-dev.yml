@@ -69,17 +69,9 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: '📥 Checkout Pipeline Library'
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
-        with:
-          repository: centrifuge/github-actions-lib
-          ref: ${{ github.job_workflow_sha }}
-          path: .lib
-          persist-credentials: false
-
       - name: '🔨 Build App'
         id: build
-        uses: ./.lib/actions/build-app
+        uses: centrifuge/github-actions-lib/actions/build-app@claude/github-actions-lib-centralize-rxomdp
         with:
           app-name: ${{ inputs.app-name }}
           node-version: ${{ inputs.node-version }}
@@ -104,17 +96,9 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: '📥 Checkout Pipeline Library'
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
-        with:
-          repository: centrifuge/github-actions-lib
-          ref: ${{ github.job_workflow_sha }}
-          path: .lib
-          persist-credentials: false
-
       - name: '🚀 Deploy App'
         id: deploy
-        uses: ./.lib/actions/deploy-app
+        uses: centrifuge/github-actions-lib/actions/deploy-app@claude/github-actions-lib-centralize-rxomdp
         with:
           environment: ${{ github.event_name == 'pull_request' && 'dev' || 'demo' }}
           app-name: ${{ inputs.app-name }}
@@ -138,11 +122,15 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: '📥 Checkout Pipeline Library'
+      # Fetch the shared LHCI config from this library. This is a normal
+      # checkout into a runtime path — not a `uses: ./` local action, which a
+      # reusable workflow cannot resolve.
+      - name: '📥 Fetch Shared Lighthouse Config'
+        if: ${{ inputs.lighthouse-config == '' }}
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           repository: centrifuge/github-actions-lib
-          ref: ${{ github.job_workflow_sha }}
+          ref: claude/github-actions-lib-centralize-rxomdp
           path: .lib
           persist-credentials: false
 
