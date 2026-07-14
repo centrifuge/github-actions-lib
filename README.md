@@ -79,13 +79,6 @@ moves both. The one place a runtime checkout of this repo is legitimate is the
 Lighthouse job, which reads the shared `lighthouserc.json` as a **file** (not
 an action) — a normal `actions/checkout` into `.lib`, no `uses: ./`.
 
-> **Migration note:** while this library is being rolled out, the intra-library
-> composite refs and the app callers point at the migration branch
-> (`…@claude/github-actions-lib-centralize-rxomdp`) so the pipeline can be
-> exercised from the app PRs before anything lands on `main`. Flip every such
-> ref to `@main` when merging (`grep -rl claude/github-actions-lib-centralize`
-> across `.github/` + `actions/`).
-
 ## Usage
 
 Thin caller examples (see `apps-invest` / `apps-management` for the real ones):

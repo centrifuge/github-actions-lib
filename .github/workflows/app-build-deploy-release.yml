@@ -103,7 +103,7 @@ jobs:
 
       - name: '🔨 Build App'
         id: build
-        uses: centrifuge/github-actions-lib/actions/build-app@claude/github-actions-lib-centralize-rxomdp
+        uses: centrifuge/github-actions-lib/actions/build-app@main
         with:
           app-name: ${{ inputs.app-name }}
           bundle-name-prefix: ${{ inputs.bundle-name-prefix }}
@@ -135,7 +135,7 @@ jobs:
 
       - name: '🚀 Deploy App to Staging'
         id: deploy
-        uses: centrifuge/github-actions-lib/actions/deploy-app@claude/github-actions-lib-centralize-rxomdp
+        uses: centrifuge/github-actions-lib/actions/deploy-app@main
         with:
           environment: staging
           app-name: ${{ inputs.app-name }}
@@ -162,7 +162,7 @@ jobs:
 
       - name: '🚀 Deploy App to Public Demo'
         id: deploy
-        uses: centrifuge/github-actions-lib/actions/deploy-app@claude/github-actions-lib-centralize-rxomdp
+        uses: centrifuge/github-actions-lib/actions/deploy-app@main
         with:
           environment: public-demo
           app-name: ${{ inputs.app-name }}
@@ -193,7 +193,7 @@ jobs:
 
       - name: '🚀 Deploy App to Production'
         id: deploy
-        uses: centrifuge/github-actions-lib/actions/deploy-app@claude/github-actions-lib-centralize-rxomdp
+        uses: centrifuge/github-actions-lib/actions/deploy-app@main
         with:
           environment: prod
           app-name: ${{ inputs.app-name }}
