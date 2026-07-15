@@ -118,9 +118,14 @@ Every input/secret/output is documented inline in each workflow's
   Output: `deployment-url`.
 - **`app-build-deploy-release.yml`** — same core contract plus
   `bundle-name-prefix` (release zip name, defaults to `app-name`),
-  `pool-cache-base-url`, `deploy-public-demo`, `production-url`. Outputs:
-  `staging-url`, `production-url`. **A tag must be `prereleased` before it
-  can be `released`** — production promotes the version staging uploaded.
+  `pool-cache-base-url`, `deploy-public-demo`, `production-url`,
+  `production-worker-name`. Secrets: `cloudflare-api-token`,
+  `slack-webhook-url`. Output: `staging-url`. **A tag must be `prereleased`
+  before it can be `released`.** `prereleased` builds once and deploys to
+  staging; `released` does **not** deploy — it posts a Slack notification
+  telling a Cloudflare admin to promote the staged version manually
+  (production promotion is intentionally not automated; see the workflow
+  header for why, and note it is a process control, not a hard control).
   Release bundles are immutable: rebuilding a tag whose bundle already exists
   fails; cut a new prerelease, or delete the asset from the release page to
   rebuild the same tag.
@@ -128,7 +133,9 @@ Every input/secret/output is documented inline in each workflow's
   `cloudflare-account-id`; secret `cloudflare-api-token`.
   `environment: prod` (default) shifts traffic to the version tagged with
   `tag`; `environment: staging` re-uploads the release bundle behind the
-  staging preview alias.
+  staging preview alias. The prod path runs the same `versions deploy`
+  command the release flow withholds — it is the emergency promotion/rollback
+  path; gate it by restricting who can dispatch the caller.
 
 ## Rules for consumers
 
