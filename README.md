@@ -10,7 +10,7 @@ consumer.
 
 ```
 .github/workflows/
-  app-ci-checks.yml             PR quality gate: prettier, lint, codespell, audit, TruffleHog, pinact
+  app-ci-checks.yml             PR quality gate: format-n-lint, pnpm-audit (own check), TruffleHog, pinact
   app-build-deploy-dev.yml      PR → preview deploy; push to main → demo deploy; optional Lighthouse
   app-build-deploy-release.yml  prereleased → staging (+ optional public-demo); released → production
   app-rollback.yml              manual rollback (prod: version traffic shift; staging: bundle re-upload)
@@ -112,10 +112,13 @@ workflow (called jobs can only downgrade):
 Every input/secret/output is documented inline in each workflow's
 `on.workflow_call` block — that block *is* the contract. Highlights:
 
-- **`app-ci-checks.yml`** — required: `node-version`, `codespell-skip`.
-  Overridable commands: `format-check-command`, `lint-command`,
-  `audit-command`. `codespell-blocking: false` makes codespell advisory.
-  `run-pinned-check: false` skips the pinact job. No secrets.
+- **`app-ci-checks.yml`** — required: `node-version`, `codespell-skip`. Jobs:
+  `format-n-lint` (prettier/lint/codespell — overridable via
+  `format-check-command`, `lint-command`; `codespell-blocking: false` makes
+  codespell advisory), `pnpm-audit` (its own check, overridable via
+  `audit-command`, so a vulnerability finding never conflates with lint/format
+  results), `secrets-scan` (TruffleHog), `pinned-actions-check` (pinact,
+  `run-pinned-check: false` to skip). No secrets.
 - **`app-build-deploy-dev.yml`** — required: `app-name`, `node-version`,
   `cloudflare-account-id`; secret `cloudflare-api-token`. `build-env` takes
   multiline `KEY=VALUE` pairs for the build step. `run-lighthouse: true`
