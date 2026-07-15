@@ -54,11 +54,6 @@ on:
         description: 'Cloudflare account ID (a repository variable, not a secret)'
         required: true
         type: string
-      wrangler-version:
-        description: 'Wrangler version to use'
-        required: false
-        type: string
-        default: '4.33.1'
       deploy-public-demo:
         description: 'Whether prereleases also deploy to the public-demo environment'
         required: false
@@ -136,7 +131,6 @@ jobs:
         with:
           environment: staging
           app-name: ${{ inputs.app-name }}
-          wrangler-version: ${{ inputs.wrangler-version }}
           cloudflare-api-token: ${{ secrets.cloudflare-api-token }}
           cloudflare-account-id: ${{ inputs.cloudflare-account-id }}
           github-token: ${{ github.token }}
@@ -163,7 +157,6 @@ jobs:
         with:
           environment: public-demo
           app-name: ${{ inputs.app-name }}
-          wrangler-version: ${{ inputs.wrangler-version }}
           cloudflare-api-token: ${{ secrets.cloudflare-api-token }}
           cloudflare-account-id: ${{ inputs.cloudflare-account-id }}
           github-token: ${{ github.token }}
@@ -193,7 +186,6 @@ jobs:
         with:
           environment: prod
           app-name: ${{ inputs.app-name }}
-          wrangler-version: ${{ inputs.wrangler-version }}
           cloudflare-api-token: ${{ secrets.cloudflare-api-token }}
           cloudflare-account-id: ${{ inputs.cloudflare-account-id }}
           github-token: ${{ github.token }}

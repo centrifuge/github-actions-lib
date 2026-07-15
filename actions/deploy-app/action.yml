@@ -16,9 +16,13 @@ inputs:
     required: false
     default: '20'
   wrangler-version:
-    description: 'Wrangler version to use'
+    description: >-
+      Wrangler CLI version for deploy commands. Pipeline-only pin, not exposed
+      by the calling reusable workflows — see README "Pinned pipeline-only
+      tool versions". Distinct from each app's own `wrangler` devDependency
+      (used for local `wrangler dev`).
     required: false
-    default: '4.33.1'
+    default: '4.111.0'
   cloudflare-api-token:
     description: 'Cloudflare API token'
     required: true

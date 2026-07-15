@@ -9,6 +9,12 @@ name: App Rollback
 # Environment protection rules on the caller's `production`/`staging`
 # environments gate the rollback.
 
+# Pipeline-only pin, not caller-overridable — see README "Pinned
+# pipeline-only tool versions". Keep in sync with actions/deploy-app's
+# wrangler-version default; both are hardcoded, not linked mechanically.
+env:
+  WRANGLER_VERSION: '4.111.0'
+
 on:
   workflow_call:
     inputs:
@@ -34,11 +40,6 @@ on:
         description: 'Cloudflare account ID (a repository variable, not a secret)'
         required: true
         type: string
-      wrangler-version:
-        description: 'Wrangler version to use'
-        required: false
-        type: string
-        default: '4.33.1'
     secrets:
       cloudflare-api-token:
         description: 'Cloudflare API token'
@@ -68,8 +69,6 @@ jobs:
 
       - name: '📦 Install Wrangler'
         shell: sh
-        env:
-          WRANGLER_VERSION: ${{ inputs.wrangler-version }}
         run: npm install -g "wrangler@$WRANGLER_VERSION"
 
       - name: '📦 Download Release Bundle'
@@ -123,5 +122,5 @@ jobs:
           accountId: ${{ inputs.cloudflare-account-id }}
           gitHubToken: ${{ github.token }}
           command: ${{ steps.wrangler-command.outputs.cmd }}
-          wranglerVersion: ${{ inputs.wrangler-version }}
+          wranglerVersion: ${{ env.WRANGLER_VERSION }}
         id: deploy

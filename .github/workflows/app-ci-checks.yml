@@ -29,9 +29,11 @@ on:
         required: false
         type: string
         # pnpm <11 hits the retired npm audit endpoint (HTTP 410); route through
-        # pnpm@11 until the apps are on pnpm >=11, then revert to plain
-        # `pnpm audit --audit-level moderate`. See pnpm/pnpm#11265.
-        default: 'pnpm --config.minimumReleaseAge=0 dlx pnpm@11.0.0-rc.1 --config.manage-package-manager-versions=false audit --audit-level moderate'
+        # a pinned stable pnpm@11 instead, until the apps are on pnpm >=11
+        # themselves, then revert to plain `pnpm audit --audit-level moderate`.
+        # Pipeline-only pin, not caller-overridable — see README "Pinned
+        # pipeline-only tool versions". See pnpm/pnpm#11265.
+        default: 'pnpm --config.minimumReleaseAge=0 dlx pnpm@11.13.0 --config.manage-package-manager-versions=false audit --audit-level moderate'
       codespell-path:
         description: 'Path scanned by codespell'
         required: false
@@ -126,9 +128,9 @@ jobs:
           persist-credentials: false
 
       - name: '🧰 Setup Toolchain'
-        # audit-command runs pnpm@11, which
-        # needs Node >=22.13 — the app's node-version is irrelevant to audit
-        # results, so pin a modern Node here rather than inputs.node-version.
+        # Pipeline-only pin, not caller-overridable — see README "Pinned
+        # pipeline-only tool versions". audit-command's pnpm@11 needs Node
+        # >=22.13; the app's own node-version is irrelevant to audit results.
         uses: centrifuge/github-actions-lib/actions/setup-app@main
         with:
           node-version: '24'
