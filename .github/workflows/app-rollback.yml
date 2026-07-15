@@ -1,16 +1,13 @@
 name: App Rollback
 
-# Reusable manual rollback for Centrifuge app repos (call from a
-# workflow_dispatch caller):
-#   prod    → instant traffic shift: look up the Cloudflare Workers version
-#             tagged with the release tag and `versions deploy <id>@100%`.
-#             No rebuild — the version must have been staged for that tag.
-#   staging → re-point the staging preview alias: download the release bundle
-#             zip from the GitHub release, then `versions upload
-#             --preview-alias staging`.
+# Reusable manual rollback (call from a workflow_dispatch caller):
+#   prod    → traffic shift to the version tagged with the release tag
+#             (`versions deploy <id>@100%`, no rebuild)
+#   staging → download the release bundle and re-point the staging preview
+#             alias (`versions upload --preview-alias staging`)
 #
-# GitHub Environments (`production`, `staging`) resolve against the CALLER's
-# repo, so environment protection rules gate the rollback.
+# Environment protection rules on the caller's `production`/`staging`
+# environments gate the rollback.
 
 on:
   workflow_call:
@@ -101,7 +98,6 @@ jobs:
           TAG: ${{ inputs.tag }}
         run: |
           if [ "$INPUT_ENVIRONMENT" = "prod" ]; then
-            # Look up the version already staged for this tag.
             WORKER_NAME=$(grep -A1 "\[env.prod\]" wrangler.toml | grep "name" | cut -d'"' -f2)
             VERSION_ID=$(wrangler versions list --name "$WORKER_NAME" --env prod --json | jq -r ".[] | select(.annotations.\"workers/tag\" == \"$TAG\") | .id" | head -1)
             if [ -z "$VERSION_ID" ] || [ "$VERSION_ID" = "null" ]; then

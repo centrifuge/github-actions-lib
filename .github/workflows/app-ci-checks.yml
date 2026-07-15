@@ -1,16 +1,11 @@
 name: App CI Checks
 
-# Reusable PR quality gate for Centrifuge app repos: formatting/lint/codespell
-# (format-n-lint), dependency audit (pnpm-audit, its own check so a
-# vulnerability finding doesn't conflate with lint/format results), secrets
-# scan, and action-pinning check. No secrets are required — everything runs
-# on the caller's code with the caller's default token.
+# Reusable PR quality gate: format-n-lint, pnpm-audit, secrets-scan and
+# pinned-actions-check. Needs no secrets — everything runs on the caller's
+# code with the caller's default token.
 #
-# NOTE: the OSV dependency scan is intentionally NOT here. It's a third-party
-# reusable workflow, and nesting a reusable workflow inside this reusable
-# workflow fails to compile (startup_failure). Each app calls
-# google/osv-scanner-action's reusable workflow directly at the top level of
-# its own ci-checks caller instead.
+# The OSV scan is deliberately not here: reusable workflows cannot nest, so
+# apps call google/osv-scanner-action directly from their ci-checks caller.
 
 on:
   workflow_call:
@@ -23,7 +18,7 @@ on:
         description: 'Command that checks code formatting'
         required: false
         type: string
-        default: 'pnpm exec prettier --check "**/*.{ts,tsx,js,jsx,json,md}"'
+        default: 'pnpm run format:check'
       lint-command:
         description: 'Command that runs linting'
         required: false
@@ -33,16 +28,20 @@ on:
         description: 'Command that audits dependencies'
         required: false
         type: string
-        default: 'pnpm audit --audit-level moderate'
+        # pnpm <11 hits the retired npm audit endpoint (HTTP 410); route through
+        # pnpm@11 until the apps are on pnpm >=11, then revert to plain
+        # `pnpm audit --audit-level moderate`. See pnpm/pnpm#11265.
+        default: 'pnpm --config.minimumReleaseAge=0 dlx pnpm@11.0.0-rc.1 --config.manage-package-manager-versions=false audit --audit-level moderate'
       codespell-path:
         description: 'Path scanned by codespell'
         required: false
         type: string
         default: 'src'
       codespell-skip:
-        description: 'Comma-separated globs codespell skips (app-specific)'
-        required: true
+        description: 'Comma-separated globs codespell skips'
+        required: false
         type: string
+        default: 'src/assets/**,src/ui/assets/**,src/icons/**,.svg,.png,.jpg,.jpeg,.ico'
       codespell-exclude-file:
         description: 'File with lines codespell ignores'
         required: false
@@ -62,6 +61,8 @@ on:
         description: 'Extra arguments for the TruffleHog secrets scan'
         required: false
         type: string
+        # verified,unknown drops unverified pattern matches (e.g. lockfile
+        # hashes that merely look like credentials).
         default: '--exclude-globs "**/dist/**,**/build/**" --exclude-detectors Box --results=verified,unknown'
       run-pinned-check:
         description: 'Whether to verify all GitHub Actions are SHA-pinned'
@@ -112,8 +113,8 @@ jobs:
           exclude_file: ${{ inputs.codespell-exclude-file }}
           ignore_words_list: ${{ inputs.codespell-ignore-words }}
 
-  # Separate from format-n-lint so a dependency-vulnerability finding shows up as its own
-  # status check, distinct from (and not blocking on, or blocked by) formatting/lint/codespell.
+  # Own job so the audit reports as its own status check, separate from
+  # code-quality results.
   pnpm-audit:
     permissions:
       contents: read
@@ -147,12 +148,8 @@ jobs:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           ref: ${{ github.event.pull_request.head.ref }}
-          # Full history. `fetch-depth: $((<commits>+2))` never worked: GitHub Actions
-          # expressions have no arithmetic (and no shell), so checkout received the literal
-          # string "$((N+2))" and silently fell back to its default depth, leaving TruffleHog
-          # to scan an unintended commit range. Full clone is the documented default for PR
-          # scans; independently rediscovered and fixed the same way in apps-invest's own
-          # (pre-migration) history.
+          # Must be a literal: expressions can't do arithmetic, so a computed
+          # shallow depth silently falls back to the default clone.
           fetch-depth: 0
           persist-credentials: false
       - name: TruffleHog scan

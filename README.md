@@ -35,23 +35,14 @@ The reusable workflows here reference this library's composite actions
     node-version: '24'
 ```
 
-Do **not** try to `actions/checkout` this library into a path and then
-`uses: ./that-path/actions/x`. A `uses: ./…` local reference in a reusable
-workflow is resolved against the reusable workflow's **own repo tree at its
-pinned ref**, at *compile* time — not against the runtime workspace. The path
-you checked out at runtime doesn't exist yet when GitHub resolves it, so the
-called workflow fails to compile and every caller gets a `startup_failure`
-with zero jobs. (The `job` context, likewise, only exposes
-`status`/`container`/`services` — there is no `job.workflow_repository` /
-`job.workflow_sha`, and `github.job_workflow_sha` cannot be used in a `uses:`
-value anyway, since `uses:` takes no expressions.)
+Do **not** `actions/checkout` this library into a path and reference
+`uses: ./that-path/actions/x`: a `./` reference in a reusable workflow
+resolves at compile time against the workflow's own repo tree, not the
+runtime workspace, and every caller gets a `startup_failure` with zero jobs.
 
-Because the composite `uses:` ref is a literal, the workflows and their
-composites are versioned together by that ref. Consumers pin the *workflow*
-`@main`; the workflows pin their composites `@main` too, so a library update
-moves both. The one place a runtime checkout of this repo is legitimate is the
-Lighthouse job, which reads the shared `lighthouserc.json` as a **file** (not
-an action) — a normal `actions/checkout` into `.lib`, no `uses: ./`.
+Workflows and composites both pin `@main`, so a library update moves them
+together. The only legitimate runtime checkout of this repo is the Lighthouse
+job reading `lighthouserc.json` as a plain file.
 
 ## Usage
 
@@ -112,24 +103,27 @@ workflow (called jobs can only downgrade):
 Every input/secret/output is documented inline in each workflow's
 `on.workflow_call` block — that block *is* the contract. Highlights:
 
-- **`app-ci-checks.yml`** — required: `node-version`, `codespell-skip`. Jobs:
-  `format-n-lint` (prettier/lint/codespell — overridable via
-  `format-check-command`, `lint-command`; `codespell-blocking: false` makes
-  codespell advisory), `pnpm-audit` (its own check, overridable via
-  `audit-command`, so a vulnerability finding never conflates with lint/format
-  results), `secrets-scan` (TruffleHog), `pinned-actions-check` (pinact,
-  `run-pinned-check: false` to skip). No secrets.
+- **`app-ci-checks.yml`** — required: `node-version` only. Jobs:
+  `format-n-lint` (defaults: `pnpm run format:check`, `pnpm run lint`,
+  codespell over `src` with shared skip globs; `codespell-blocking: false`
+  makes codespell advisory), `pnpm-audit` (own status check; default command
+  routes through pnpm@11 while the apps are on pnpm <11), `secrets-scan`
+  (TruffleHog), `pinned-actions-check` (pinact). Every command and glob is an
+  input, so apps override only where they diverge. No secrets.
 - **`app-build-deploy-dev.yml`** — required: `app-name`, `node-version`,
-  `cloudflare-account-id`; secret `cloudflare-api-token`. `build-env` takes
-  multiline `KEY=VALUE` pairs for the build step. `run-lighthouse: true`
-  enables the LHCI job on PR previews, using this library's shared
-  `lighthouserc.json` by default; set `lighthouse-config` to a caller-repo path
-  to override. Output: `deployment-url`.
+  `cloudflare-account-id`; secret `cloudflare-api-token`. Defaults:
+  `build-args: --mode testnet`, Lighthouse on PR previews enabled
+  (`run-lighthouse: true`) with this library's `lighthouserc.json`;
+  `build-env` takes multiline `KEY=VALUE` pairs for the build step.
+  Output: `deployment-url`.
 - **`app-build-deploy-release.yml`** — same core contract plus
   `bundle-name-prefix` (release zip name, defaults to `app-name`),
   `pool-cache-base-url`, `deploy-public-demo`, `production-url`. Outputs:
   `staging-url`, `production-url`. **A tag must be `prereleased` before it
   can be `released`** — production promotes the version staging uploaded.
+  Release bundles are immutable: rebuilding a tag whose bundle already exists
+  fails; cut a new prerelease, or delete the asset from the release page to
+  rebuild the same tag.
 - **`app-rollback.yml`** — required: `tag`, `app-name`,
   `cloudflare-account-id`; secret `cloudflare-api-token`.
   `environment: prod` (default) shifts traffic to the version tagged with
