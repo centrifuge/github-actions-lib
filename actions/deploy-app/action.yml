@@ -12,9 +12,12 @@ inputs:
     description: 'Prefix used for the run-scoped build artifact name (must match build-app)'
     required: true
   node-version:
-    description: 'Node.js version to use'
+    description: >-
+      Node.js version for running wrangler itself (not the app's build).
+      Must satisfy wrangler-version's own minimum — wrangler 4.x requires
+      Node >=22.
     required: false
-    default: '20'
+    default: '24'
   wrangler-version:
     description: >-
       Wrangler CLI version for deploy commands. Pipeline-only pin, not exposed
