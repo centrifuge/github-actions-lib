@@ -126,9 +126,12 @@ jobs:
           persist-credentials: false
 
       - name: '🧰 Setup Toolchain'
+        # audit-command runs pnpm@11, which
+        # needs Node >=22.13 — the app's node-version is irrelevant to audit
+        # results, so pin a modern Node here rather than inputs.node-version.
         uses: centrifuge/github-actions-lib/actions/setup-app@main
         with:
-          node-version: ${{ inputs.node-version }}
+          node-version: '24'
 
       - name: Install dependencies
         shell: sh
