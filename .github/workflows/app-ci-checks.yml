@@ -143,7 +143,21 @@ jobs:
         shell: sh
         env:
           AUDIT_COMMAND: ${{ inputs.audit-command }}
-        run: eval "$AUDIT_COMMAND"
+        # npm's audit endpoint has intermittently returned its retired-endpoint
+        # 410 response even against clients that use the working bulk-advisory
+        # call (observed in production, not hypothetical) — retry a few times
+        # before failing the check on what may be a transient registry error.
+        run: |
+          n=0
+          until eval "$AUDIT_COMMAND"; do
+            n=$((n + 1))
+            if [ "$n" -ge 3 ]; then
+              echo "::error::Audit failed after $n attempts (possibly a transient registry error — see pnpm/pnpm#11265)"
+              exit 1
+            fi
+            echo "::warning::Audit attempt $n failed; retrying in 5s"
+            sleep 5
+          done
 
   secrets-scan:
     runs-on: ubuntu-latest
