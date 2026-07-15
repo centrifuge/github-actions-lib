@@ -1,9 +1,10 @@
 name: App CI Checks
 
-# Reusable PR quality gate for Centrifuge app repos: formatting, lint,
-# codespell, dependency audit, secrets scan, and action-pinning check. No
-# secrets are required — everything runs on the caller's code with the
-# caller's default token.
+# Reusable PR quality gate for Centrifuge app repos: formatting/lint/codespell
+# (format-n-lint), dependency audit (pnpm-audit, its own check so a
+# vulnerability finding doesn't conflate with lint/format results), secrets
+# scan, and action-pinning check. No secrets are required — everything runs
+# on the caller's code with the caller's default token.
 #
 # NOTE: the OSV dependency scan is intentionally NOT here. It's a third-party
 # reusable workflow, and nesting a reusable workflow inside this reusable
@@ -69,7 +70,7 @@ on:
         default: true
 
 jobs:
-  basic-checks:
+  format-n-lint:
     permissions:
       contents: read
     runs-on: ubuntu-latest
@@ -111,8 +112,28 @@ jobs:
           exclude_file: ${{ inputs.codespell-exclude-file }}
           ignore_words_list: ${{ inputs.codespell-ignore-words }}
 
+  # Separate from format-n-lint so a dependency-vulnerability finding shows up as its own
+  # status check, distinct from (and not blocking on, or blocked by) formatting/lint/codespell.
+  pnpm-audit:
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    steps:
+      - name: '📥 Checkout Code'
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+
+      - name: '🧰 Setup Toolchain'
+        uses: centrifuge/github-actions-lib/actions/setup-app@main
+        with:
+          node-version: ${{ inputs.node-version }}
+
+      - name: Install dependencies
+        shell: sh
+        run: pnpm install --frozen-lockfile
+
       - name: Audit dependencies with pnpm
-        if: always()
         shell: sh
         env:
           AUDIT_COMMAND: ${{ inputs.audit-command }}
@@ -126,8 +147,13 @@ jobs:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           ref: ${{ github.event.pull_request.head.ref }}
-          fetch-depth: $((${{ github.event.pull_request.commits }}+2))
-          # Shallow clone to speed up the action
+          # Full history. `fetch-depth: $((<commits>+2))` never worked: GitHub Actions
+          # expressions have no arithmetic (and no shell), so checkout received the literal
+          # string "$((N+2))" and silently fell back to its default depth, leaving TruffleHog
+          # to scan an unintended commit range. Full clone is the documented default for PR
+          # scans; independently rediscovered and fixed the same way in apps-invest's own
+          # (pre-migration) history.
+          fetch-depth: 0
           persist-credentials: false
       - name: TruffleHog scan
         uses: trufflesecurity/trufflehog@0c9fbff42893900f6cc15010c408d70d6013819c # v3.90.4
