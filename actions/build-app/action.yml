@@ -3,8 +3,7 @@ description: >-
   Build a Vite app with the shared toolchain and publish its artifacts.
   Uploads the build as `<app-name>-build-<sha>` for same-run deploy jobs, and
   on prerelease events attaches `<bundle-name-prefix>-bundle<tag>.zip` to the
-  GitHub release. Requires this library to be checked out at `.lib` (see the
-  repository README).
+  GitHub release.
 
 inputs:
   app-name:
@@ -85,7 +84,7 @@ runs:
       env:
         BUILD_ENV: ${{ inputs.build-env }}
       run: |
-        # Each non-empty line must be KEY=VALUE with a valid shell identifier as KEY.
+        # KEY=VALUE per line, KEY a valid shell identifier
         echo "$BUILD_ENV" | while IFS= read -r line; do
           [ -z "$line" ] && continue
           if ! echo "$line" | grep -Eq '^[A-Za-z_][A-Za-z0-9_]*='; then

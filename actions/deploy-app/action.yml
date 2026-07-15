@@ -2,8 +2,7 @@ name: 'Deploy App'
 description: >-
   Deploy an app build to Cloudflare Workers with environment-based wrangler
   commands. Downloads the same-run `<app-name>-build-<sha>` artifact (except
-  for prod, which promotes the version already staged by tag). Requires this
-  library to be checked out at `.lib` (see the repository README).
+  for prod, which promotes the version already staged by tag).
 
 inputs:
   environment:

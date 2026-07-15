@@ -1,13 +1,11 @@
 name: App Build & Deploy Dev
 
-# Reusable test-environment pipeline for Centrifuge app repos:
-#   pull_request  → build (testnet) → deploy to the caller's `preview`
-#                   GitHub Environment (wrangler env `dev`) → optional Lighthouse
-#   push to main  → build (testnet) → deploy to the caller's `demo`
-#                   GitHub Environment (wrangler env `dev`, direct deploy)
+# Reusable test-environment pipeline:
+#   pull_request → build (testnet) → deploy to `preview` (wrangler env `dev`) → Lighthouse
+#   push to main → build (testnet) → deploy to `demo` (wrangler env `dev`, direct deploy)
 #
-# GitHub Environments (`preview`, `demo`) resolve against the CALLER's repo,
-# so protection rules and environment config stay per-app.
+# GitHub Environments resolve against the caller's repo, so protection rules
+# stay per-app.
 
 on:
   workflow_call:
@@ -43,7 +41,7 @@ on:
         description: 'Whether to run the Lighthouse performance check on PR previews'
         required: false
         type: boolean
-        default: false
+        default: true
       lighthouse-config:
         description: 'Path to an LHCI config file in the caller repo; empty uses the library''s shared config'
         required: false
@@ -122,9 +120,8 @@ jobs:
         with:
           persist-credentials: false
 
-      # Fetch the shared LHCI config from this library. This is a normal
-      # checkout into a runtime path — not a `uses: ./` local action, which a
-      # reusable workflow cannot resolve.
+      # Plain file checkout of this library for the shared LHCI config — a
+      # `uses: ./` reference cannot resolve a runtime path.
       - name: '📥 Fetch Shared Lighthouse Config'
         if: ${{ inputs.lighthouse-config == '' }}
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
@@ -137,7 +134,6 @@ jobs:
       - name: '📊 Performance Test with Lighthouse'
         env:
           LHCI_GITHUB_TOKEN: ${{ github.token }}
-          # Empty input → the library's shared config (.lib/lighthouserc.json).
           LHCI_CONFIG: ${{ inputs.lighthouse-config }}
           DEPLOYMENT_URL: ${{ needs.deploy.outputs.deployment-url }}
         run: |
