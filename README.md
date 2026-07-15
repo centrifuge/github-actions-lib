@@ -147,6 +147,25 @@ Every input/secret/output is documented inline in each workflow's
   ignore for this library (see the apps' `.pinact.yaml`); everything *inside*
   this library is SHA-pinned and `lib-ci.yml` enforces that.
 
+### Pipeline-only tool versions (not caller-overridable, by design)
+
+Two version knobs are internal to this library's job execution, not to the
+apps' own toolchain — they're deliberately hardcoded literals, not
+`workflow_call` inputs, so apps can't drift them. (GitHub Actions can't source
+an input `default:` from an external file at runtime, so this table is the
+single place to look before changing any of them — not a machine-read config.)
+
+| Where | Value | Why |
+|---|---|---|
+| `app-ci-checks.yml` → `pnpm-audit` job, `setup-app` `node-version` | `'22'` | The audit workaround below needs Node ≥22.13 (`node:sqlite`), independent of the app's own `node-version`. |
+| `app-ci-checks.yml` → `audit-command` default, embedded `pnpm@11.0.0-rc.1` | RC, not stable | **Tested and confirmed (see github-actions-lib#6):** stable `pnpm@11.0.0` and current `latest` (`11.13.0`) both regressed to the retired classic audit endpoint (HTTP 410) — only this RC has the working bulk-advisory call. Do not bump this to "stable" or "latest" without re-testing against a real lockfile first. |
+| `app-rollback.yml` → wrangler-install step, `setup-node` `node-version` | `'20'` | Only runs `npm install -g wrangler` + the wrangler CLI; unrelated to the app's toolchain. |
+
+This is distinct from **`actions/setup-app`'s pnpm version**, which has no
+hardcoded default at all — it's resolved from each app's own `package.json`
+`"packageManager"` field, because that pnpm *is* the one developers use
+locally (`pnpm install`, `pnpm build`, …) and should stay under app control.
+
 ## Making changes
 
 Consumers track `@main`, so a merge here rolls out to every app's next
