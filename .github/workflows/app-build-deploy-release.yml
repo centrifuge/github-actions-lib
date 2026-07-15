@@ -11,6 +11,10 @@ name: App Build & Deploy Release
 # the version staging uploaded, and the bundle only exists after the
 # prerelease build.
 #
+# Release bundles are immutable: re-running the prerelease build for a tag
+# whose bundle already exists fails. Cut a new prerelease for new code, or
+# delete the asset from the release page to rebuild the same tag.
+#
 # GitHub Environments (`staging`, `public-demo`, `production`) resolve
 # against the caller's repo. Caller permissions ceiling: contents: write
 # (release bundle upload), deployments: write.

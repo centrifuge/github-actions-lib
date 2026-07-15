@@ -49,8 +49,10 @@ runs:
       with:
         node-version: ${{ inputs.node-version }}
 
-    - name: '🔍 Check if Build Artifact Already Exists'
-      if: github.event_name == 'release'
+    - name: '🔍 Refuse to Overwrite an Existing Release Bundle'
+      # Release bundles are immutable: rebuilding under the same tag would
+      # silently change what a later `released` promotion or rollback deploys.
+      if: github.event.action == 'prereleased'
       id: check-artifact
       shell: sh
       env:
@@ -60,13 +62,10 @@ runs:
         BUNDLE_PREFIX: ${{ inputs.bundle-name-prefix || inputs.app-name }}
       run: |
         ARTIFACT_NAME="${BUNDLE_PREFIX}-bundle${GH_REF_NAME}.zip"
-        echo "artifact-name=$ARTIFACT_NAME" >> $GITHUB_OUTPUT
+        echo "artifact-name=$ARTIFACT_NAME" >> "$GITHUB_OUTPUT"
         if [ -n "$(gh release view "$GH_REF_NAME" --repo "$GH_REPOSITORY" --json assets --jq '.assets[] | select(.name == "'"$ARTIFACT_NAME"'")')" ]; then
-          echo "::info::✅ Build artifact already exists, skipping build: $ARTIFACT_NAME"
-          echo "skip_build=true" >> $GITHUB_OUTPUT
-        else
-          echo "::info::🔄 Build artifact not found, building $ARTIFACT_NAME"
-          echo "skip_build=false" >> $GITHUB_OUTPUT
+          echo "::error::$ARTIFACT_NAME is already attached to release $GH_REF_NAME. For new code, create a new prerelease. To rebuild this tag anyway, delete the asset at $GITHUB_SERVER_URL/$GH_REPOSITORY/releases/tag/$GH_REF_NAME and re-run."
+          exit 1
         fi
 
     - name: '📥 Install Dependencies'
@@ -74,7 +73,6 @@ runs:
       run: pnpm install --frozen-lockfile
 
     - name: '🎨 Generate Chakra UI Types'
-      if: ${{ github.event_name != 'release' || steps.check-artifact.outputs.skip_build != 'true' }}
       shell: sh
       run: pnpm theme:typings
 
@@ -95,7 +93,6 @@ runs:
         done
 
     - name: '🔨 Build App'
-      if: ${{ github.event_name != 'release' || steps.check-artifact.outputs.skip_build != 'true' }}
       id: build
       shell: sh
       env:
@@ -108,14 +105,13 @@ runs:
         pnpm build $BUILD_ARGS
 
     - name: '📦 Upload Build Artifact'
-      if: ${{ steps.build.outcome == 'success' }}
       uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
       with:
         name: ${{ inputs.app-name }}-build-${{ github.sha }}
         path: ./dist
 
     - name: '📦 Upload Build Artifact to Release'
-      if: ${{ steps.build.outcome == 'success' && github.event.action == 'prereleased' }}
+      if: ${{ github.event.action == 'prereleased' }}
       shell: sh
       env:
         GH_TOKEN: ${{ inputs.github-token }}
@@ -123,10 +119,5 @@ runs:
         GH_REPOSITORY: ${{ github.repository }}
         ARTIFACT_NAME: ${{ steps.check-artifact.outputs.artifact-name }}
       run: |
-        # Create a zip file of the dist folder
         cd dist && zip -r "../$ARTIFACT_NAME" . && cd ..
-
-        # Upload to release using GitHub CLI
-        gh release upload "$GH_REF_NAME" "$ARTIFACT_NAME" \
-          --repo "$GH_REPOSITORY" \
-          --clobber
+        gh release upload "$GH_REF_NAME" "$ARTIFACT_NAME" --repo "$GH_REPOSITORY"

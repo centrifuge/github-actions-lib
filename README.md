@@ -121,6 +121,9 @@ Every input/secret/output is documented inline in each workflow's
   `pool-cache-base-url`, `deploy-public-demo`, `production-url`. Outputs:
   `staging-url`, `production-url`. **A tag must be `prereleased` before it
   can be `released`** — production promotes the version staging uploaded.
+  Release bundles are immutable: rebuilding a tag whose bundle already exists
+  fails; cut a new prerelease, or delete the asset from the release page to
+  rebuild the same tag.
 - **`app-rollback.yml`** — required: `tag`, `app-name`,
   `cloudflare-account-id`; secret `cloudflare-api-token`.
   `environment: prod` (default) shifts traffic to the version tagged with
