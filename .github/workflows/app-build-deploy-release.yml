@@ -4,20 +4,30 @@ name: App Build & Deploy Release
 #   prereleased → mainnet build (bundle attached to the release) → staging
 #                 (`versions upload --preview-alias staging`, tagged with the
 #                 release tag) → optionally public-demo
-#   released    → promote the staged version to production
-#                 (`versions deploy <id>@100%` looked up by tag)
+#   released    → notify Slack that the staged version is ready; a Cloudflare
+#                 admin promotes it to production manually
 #
-# A tag MUST be prereleased before it can be released: production promotes
-# the version staging uploaded, and the bundle only exists after the
-# prerelease build.
+# Production promotion is deliberately NOT automated. GitHub environment
+# protection (required reviewers) is unavailable on private non-Enterprise
+# repos, and the Cloudflare API token cannot be scoped to forbid version
+# deploys — so the pipeline simply does not run the promotion command. This
+# is a process control, not a hard control: anyone holding a token that can
+# deploy Worker versions (including this pipeline's own token via
+# app-rollback.yml) can still promote. It removes the automatic, unattended
+# path, not the capability.
+#
+# A tag MUST be prereleased before it can be released: promotion targets the
+# version staging uploaded, and the bundle only exists after the prerelease
+# build.
 #
 # Release bundles are immutable: re-running the prerelease build for a tag
 # whose bundle already exists fails. Cut a new prerelease for new code, or
 # delete the asset from the release page to rebuild the same tag.
 #
-# GitHub Environments (`staging`, `public-demo`, `production`) resolve
-# against the caller's repo. Caller permissions ceiling: contents: write
-# (release bundle upload), deployments: write.
+# GitHub Environments (`staging`, `public-demo`) resolve against the caller's
+# repo. Caller permissions ceiling: contents: write (release bundle upload),
+# deployments: write (staging deployment record). The released path only
+# reads and posts to Slack, so it needs no extra scopes.
 
 on:
   workflow_call:
@@ -65,7 +75,12 @@ on:
         type: boolean
         default: false
       production-url:
-        description: 'Fixed production URL for the GitHub deployment record (falls back to the wrangler deployment URL)'
+        description: 'Public production URL, surfaced in the promotion notification'
+        required: false
+        type: string
+        default: ''
+      production-worker-name:
+        description: 'Cloudflare Worker name for the prod environment (wrangler.toml [env.prod]); used in the promotion notification commands and dashboard link'
         required: false
         type: string
         default: ''
@@ -73,13 +88,13 @@ on:
       cloudflare-api-token:
         description: 'Cloudflare API token'
         required: true
+      slack-webhook-url:
+        description: 'Slack incoming-webhook URL for the production-promotion notification'
+        required: true
     outputs:
       staging-url:
         description: 'Staging deployment URL (prereleased only)'
         value: ${{ jobs.deploy-staging.outputs.deployment-url }}
-      production-url:
-        description: 'Production deployment URL (released only)'
-        value: ${{ jobs.deploy-production.outputs.deployment-url }}
 
 jobs:
   # One build per release, shared via `needs: build`. Artifact names are
@@ -168,32 +183,65 @@ jobs:
           cloudflare-account-id: ${{ inputs.cloudflare-account-id }}
           github-token: ${{ github.token }}
 
-  # `released` promotes the version already staged for this tag; deploy-app
-  # skips download-artifact for prod, so no `needs: build`.
-  deploy-production:
+  # `released` does not deploy — it announces that the version staged for this
+  # tag is ready, and a Cloudflare admin promotes it by hand. No Cloudflare
+  # token, no wrangler, no artifact; needs only network access to post Slack.
+  notify-production-promotion:
     runs-on: ubuntu-latest
     if: github.event.action == 'released'
-    environment:
-      name: production
-      url: ${{ inputs.production-url || steps.deploy.outputs.deployment-url }}
     permissions:
       contents: read
-      deployments: write
-    outputs:
-      deployment-url: ${{ steps.deploy.outputs.deployment-url }}
     steps:
-      - name: '📥 Checkout Code'
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
-        with:
-          persist-credentials: false
+      - name: '📣 Request manual production promotion'
+        shell: bash
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.slack-webhook-url }}
+          APP_NAME: ${{ inputs.app-name }}
+          WORKER_NAME: ${{ inputs.production-worker-name }}
+          ACCOUNT_ID: ${{ inputs.cloudflare-account-id }}
+          PRODUCTION_URL: ${{ inputs.production-url }}
+          TAG: ${{ github.ref_name }}
+          ACTOR: ${{ github.actor }}
+          SERVER_URL: ${{ github.server_url }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
 
-      - name: '🚀 Deploy App to Production'
-        id: deploy
-        uses: centrifuge/github-actions-lib/actions/deploy-app@main
-        with:
-          environment: prod
-          app-name: ${{ inputs.app-name }}
-          wrangler-version: ${{ inputs.wrangler-version }}
-          cloudflare-api-token: ${{ secrets.cloudflare-api-token }}
-          cloudflare-account-id: ${{ inputs.cloudflare-account-id }}
-          github-token: ${{ github.token }}
+          # Fall back to a readable placeholder so the message is still
+          # coherent if a caller omits the worker name.
+          WORKER="${WORKER_NAME:-<worker from wrangler.toml [env.prod]>}"
+          RELEASE_URL="${SERVER_URL}/${REPOSITORY}/releases/tag/${TAG}"
+          DASH_URL="https://dash.cloudflare.com/${ACCOUNT_ID}/workers/services/view/${WORKER}/production/deployments"
+
+          # printf per line keeps the message free of YAML/heredoc indentation.
+          TEXT=$(printf '%s\n' \
+            "🚀 *${APP_NAME}* — release *${TAG}* is staged and ready to promote to production." \
+            "Staging already serves this version. Promotion to production is manual: a Cloudflare admin must run the commands below." \
+            "" \
+            "• Release: <${RELEASE_URL}|${TAG}>" \
+            "• Cloudflare dashboard: <${DASH_URL}|${WORKER} deployments>" \
+            "• Triggered by: ${ACTOR}" \
+            "" \
+            "Promote from the CLI (needs a Cloudflare token allowed to deploy Worker versions):" \
+            '```' \
+            "npx wrangler versions list --name ${WORKER} --env prod --json   # copy the id whose annotations.\"workers/tag\" == \"${TAG}\"" \
+            "npx wrangler versions deploy <VERSION_ID>@100% --env prod --yes" \
+            '```')
+          if [ -n "$PRODUCTION_URL" ]; then
+            TEXT="${TEXT}"$'\n'"Once promoted, live at ${PRODUCTION_URL}"
+          fi
+
+          PAYLOAD=$(jq -n --arg text "$TEXT" '{text: $text}')
+          HTTP_CODE=$(curl -sS -o /tmp/slack_resp.txt -w '%{http_code}' \
+            -X POST -H 'Content-type: application/json' \
+            --data "$PAYLOAD" "$SLACK_WEBHOOK_URL")
+          echo "Slack responded: ${HTTP_CODE} $(cat /tmp/slack_resp.txt)"
+
+          # Fail loudly: a swallowed notification means nobody promotes.
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "::error::Slack notification failed (HTTP ${HTTP_CODE}). Promote production manually via ${DASH_URL}"
+            exit 1
+          fi
+
+          echo "### 🚀 Production promotion required" >> "$GITHUB_STEP_SUMMARY"
+          echo "Release [\`${TAG}\`](${RELEASE_URL}) is staged. A Cloudflare admin must promote it — see Slack, or [the dashboard](${DASH_URL})." >> "$GITHUB_STEP_SUMMARY"

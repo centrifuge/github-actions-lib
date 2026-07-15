@@ -1,0 +1,21 @@
+# Code owners for centrifuge/github-actions-lib
+#
+# This library is on the critical path that builds and publishes production
+# app code, with the consumer repos' secrets. Paths that change deployment
+# behavior, use secrets, or govern the security controls require review from
+# a designated owner. Last matching pattern wins.
+
+# --- Deployment behavior & secret usage ---
+/.github/workflows/app-build-deploy-dev.yml      @gpmayorga
+/.github/workflows/app-build-deploy-release.yml  @gpmayorga
+/.github/workflows/app-rollback.yml              @gpmayorga
+/actions/build-app/                              @gpmayorga
+/actions/deploy-app/                             @gpmayorga
+
+# --- Security controls & governance ---
+# lib-ci enforces SHA-pinning and lint; .pinact.yaml defines pin exceptions;
+# CODEOWNERS and CLAUDE.md govern who/what may change the above.
+/.github/workflows/lib-ci.yml                    @gpmayorga
+/.pinact.yaml                                    @gpmayorga
+/.github/CODEOWNERS                              @gpmayorga
+/CLAUDE.md                                       @gpmayorga

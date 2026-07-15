@@ -6,8 +6,12 @@ name: App Rollback
 #   staging → download the release bundle and re-point the staging preview
 #             alias (`versions upload --preview-alias staging`)
 #
-# Environment protection rules on the caller's `production`/`staging`
-# environments gate the rollback.
+# NOTE: the prod path runs the same `versions deploy @100%` command the
+# release flow deliberately withholds (app-build-deploy-release.yml notifies
+# instead of promoting). This is the emergency traffic-shift path and keeps
+# that capability on purpose — restricting who can dispatch it is the only
+# control, since the Cloudflare token itself cannot be scoped to forbid
+# version deploys.
 
 on:
   workflow_call:
