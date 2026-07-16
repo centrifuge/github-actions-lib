@@ -12,14 +12,14 @@ consumer.
 .github/workflows/
   app-ci-checks.yml             PR quality gate: format-n-lint, pnpm-audit (own check), TruffleHog, pinact
   app-build-deploy-dev.yml      PR → preview deploy; push to main → demo deploy; optional Lighthouse
-  app-build-deploy-release.yml  prereleased → staging (+ optional public-demo); released → promotion notice
+  app-build-deploy-release.yml  prereleased → staging (+ optional public-demo / parallel testnet); released → promotion notice
   app-promote-production.yml    allowlist-gated production promotion (workflow_dispatch caller)
-  app-rollback.yml              allowlist-gated rollback (prod: version traffic shift; staging: bundle re-upload)
+  app-rollback.yml              allowlist-gated rollback (prod: version traffic shift; staging/testnet: bundle redeploy)
   lib-ci.yml                    this repo's own CI (actionlint, pinact, yamllint)
 actions/
   setup-app/                    Node + pnpm bootstrap (pnpm version from package.json "packageManager")
   build-app/                    build + artifact upload (+ release bundle upload on prerelease)
-  deploy-app/                   wrangler deploy per environment (dev/demo/public-demo/staging/prod)
+  deploy-app/                   wrangler deploy per environment (dev/demo/public-demo/staging/testnet/prod)
 lighthouserc.json               shared LHCI config used by app-build-deploy-dev's performance job
 ```
 
@@ -121,13 +121,21 @@ Every input/secret/output is documented inline in each workflow's
 - **`app-build-deploy-release.yml`** — same core contract plus
   `bundle-name-prefix` (release zip name, defaults to `app-name`),
   `pool-cache-base-url`, `deploy-public-demo`, `production-url`,
-  `production-worker-name`. Secrets: `cloudflare-api-token`,
-  `slack-webhook-url`. Output: `staging-url`. **A tag must be `prereleased`
-  before it can be `released`.** `prereleased` builds once and deploys to
-  staging; `released` does **not** deploy — it posts a Slack notification
-  with the gated promotion instructions (`gh workflow run
-  promote-production.yml ...`). The notification links to the caller repo's
+  `production-worker-name`, and the parallel testnet pipeline:
+  `deploy-testnet` (prereleases also run a second, testnet-mode build and
+  `wrangler deploy --env testnet` it to the caller's standalone testnet
+  Worker), `testnet-build-args` (default `--mode testnet`),
+  `testnet-build-env`, `testnet-url`. The testnet build uploads its own
+  artifact (`<app-name>-testnet-build-<sha>`) and attaches its own release
+  bundle (`<bundle-prefix>-testnet-bundle<tag>.zip`). Secrets:
+  `cloudflare-api-token`, `slack-webhook-url`. Outputs: `staging-url`,
+  `testnet-url`. **A tag must be `prereleased` before it can be
+  `released`.** `prereleased` builds once and deploys to staging;
+  `released` does **not** deploy — it posts a Slack notification with the
+  gated promotion instructions (`gh workflow run promote-production.yml
+  ...`). The notification links to the caller repo's
   `promote-production.yml`, so name your promote caller exactly that.
+  The testnet leg is prerelease-only and never touches production.
   Release bundles are immutable: rebuilding a tag whose bundle already exists
   fails; cut a new prerelease, or delete the asset from the release page to
   rebuild the same tag.
@@ -146,9 +154,11 @@ Every input/secret/output is documented inline in each workflow's
   `slack-webhook-url` for failed-attempt alerts). `environment: prod`
   (default) shifts traffic to the version tagged with `tag`;
   `environment: staging` re-uploads the release bundle behind the staging
-  preview alias. Gated by the same `authorized-deployers` allowlist as
-  promotion — declared optional for parse-compat, but empty **fails closed
-  at runtime**; callers must pass `vars.AUTHORIZED_DEPLOYERS`.
+  preview alias; `environment: testnet` redeploys the testnet release
+  bundle to the standalone testnet Worker. Gated by the same
+  `authorized-deployers` allowlist as promotion — for every environment,
+  testnet included — declared optional for parse-compat, but empty **fails
+  closed at runtime**; callers must pass `vars.AUTHORIZED_DEPLOYERS`.
 
 ## Rules for consumers
 

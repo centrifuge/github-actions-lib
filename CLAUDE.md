@@ -75,6 +75,14 @@ publishes production app code**. Treat every change as a supply-chain change.
 - **Release bundles are immutable.** `build-app` fails rather than overwrite an
   existing release asset; the deploy/rollback flows depend on that bundle not
   changing under a fixed tag.
+- **The testnet leg is a second, independent pipeline on the same prerelease**
+  (`deploy-testnet: true`), not a variant of the mainnet one: its own build
+  (`--mode testnet`), its own run artifact and release bundle, and a direct
+  `wrangler deploy --env testnet` to a standalone Worker. It deliberately does
+  **not** use the staging preview alias or version promotion — testnet serves a
+  permanent URL and has no promotion step — and it never touches the production
+  Worker. Keep the artifact/bundle names suffixed; colliding with the mainnet
+  build's names would make one overwrite the other.
 
 ## Layout
 
@@ -83,9 +91,9 @@ publishes production app code**. Treat every change as a supply-chain change.
   lib-ci.yml                    # this repo's own CI: actionlint + pinact + yamllint
   app-ci-checks.yml             # workflow_call: format/lint/audit/secrets-scan/pinact
   app-build-deploy-dev.yml      # workflow_call: PR preview + demo (+ Lighthouse)
-  app-build-deploy-release.yml  # workflow_call: prerelease→staging, release→notify
+  app-build-deploy-release.yml  # workflow_call: prerelease→staging (+opt. testnet), release→notify
   app-promote-production.yml    # workflow_call: allowlist-gated prod traffic shift
-  app-rollback.yml              # workflow_call: gated prod traffic-shift / staging re-upload
+  app-rollback.yml              # workflow_call: gated prod traffic-shift / staging|testnet re-upload
 actions/
   setup-app/                    # pnpm (from packageManager) + node + cache
   build-app/                    # build + artifact upload + release bundle

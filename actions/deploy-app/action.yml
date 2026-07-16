@@ -6,7 +6,7 @@ description: >-
 
 inputs:
   environment:
-    description: 'Deployment environment (dev, demo, public-demo, staging, prod)'
+    description: 'Deployment environment (dev, demo, public-demo, staging, testnet, prod)'
     required: true
   app-name:
     description: 'Prefix used for the run-scoped build artifact name (must match build-app)'
@@ -103,8 +103,8 @@ runs:
           # PR: Upload with PR info
           SHORT_SHA=$(echo "$GITHUB_SHA" | cut -c1-7)
           CMD="versions upload --env $WRANGLER_ENV --tag $SHORT_SHA --message \"PR #$PR_NUMBER - $SHORT_SHA\""
-        elif [ "$INPUT_ENVIRONMENT" = "demo" ] || [ "$INPUT_ENVIRONMENT" = "public-demo" ]; then
-          # Demo environments: Direct deploy
+        elif [ "$INPUT_ENVIRONMENT" = "demo" ] || [ "$INPUT_ENVIRONMENT" = "public-demo" ] || [ "$INPUT_ENVIRONMENT" = "testnet" ]; then
+          # Demo/testnet environments: Direct deploy to a standalone Worker
           CMD="deploy --env $WRANGLER_ENV"
         else
           echo "Error: Environment '$INPUT_ENVIRONMENT' is not defined or supported."
