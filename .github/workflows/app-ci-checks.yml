@@ -64,8 +64,15 @@ on:
         required: false
         type: string
         # verified,unknown drops unverified pattern matches (e.g. lockfile
-        # hashes that merely look like credentials).
-        default: '--exclude-globs "**/dist/**,**/build/**" --exclude-detectors Box --results=verified,unknown'
+        # hashes that merely look like credentials). Do NOT wrap the
+        # comma-separated glob list in quotes: the upstream trufflehog action
+        # appends this value via unquoted `${ARGS:-''}` in its entrypoint
+        # script, so bash never strips the quotes — they survive as literal
+        # characters glued onto the first and last glob, silently breaking
+        # just those two (verified by reproducing the action's exact append
+        # locally). No quotes needed anyway: there are no spaces in the list,
+        # so word-splitting leaves it intact as one argument either way.
+        default: '--exclude-globs **/dist/**,**/build/** --exclude-detectors Box --results=verified,unknown'
       run-pinned-check:
         description: 'Whether to verify all GitHub Actions are SHA-pinned'
         required: false
