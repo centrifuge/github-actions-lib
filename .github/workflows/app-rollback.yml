@@ -5,9 +5,12 @@ name: App Rollback
 #             (`versions deploy <id>@100%`, no rebuild)
 #   staging → download the release bundle and re-point the staging preview
 #             alias (`versions upload --preview-alias staging`)
+#   testnet → download the testnet release bundle
+#             (`<bundle-prefix>-testnet-bundle<tag>.zip`) and redeploy the
+#             standalone testnet Worker (`deploy --env testnet`)
 #
-# Environment protection rules on the caller's `production`/`staging`
-# environments gate the rollback.
+# Environment protection rules on the caller's `production`/`staging`/
+# `testnet` environments gate the rollback.
 
 # Pipeline-only pin, not caller-overridable — see README "Pinned
 # pipeline-only tool versions". Keep in sync with actions/deploy-app's
@@ -23,7 +26,7 @@ on:
         required: true
         type: string
       environment:
-        description: "Environment to roll back ('staging' or 'prod')"
+        description: "Environment to roll back ('staging', 'testnet' or 'prod')"
         required: false
         type: string
         default: 'prod'
@@ -50,7 +53,7 @@ jobs:
     name: 'Roll Back ${{ inputs.app-name }} to ${{ inputs.tag }} on ${{ inputs.environment }}'
     runs-on: ubuntu-latest
     environment:
-      name: ${{ inputs.environment == 'prod' && 'production' || 'staging' }}
+      name: ${{ inputs.environment == 'prod' && 'production' || inputs.environment }}
       url: ${{ steps.deploy.outputs.deployment-url }}
     permissions:
       contents: read
@@ -81,7 +84,12 @@ jobs:
           GH_REPOSITORY: ${{ github.repository }}
           TAG: ${{ inputs.tag }}
           BUNDLE_PREFIX: ${{ inputs.bundle-name-prefix || inputs.app-name }}
+          INPUT_ENVIRONMENT: ${{ inputs.environment }}
         run: |
+          # Testnet bundles are attached under their own suffixed prefix
+          if [ "$INPUT_ENVIRONMENT" = "testnet" ]; then
+            BUNDLE_PREFIX="${BUNDLE_PREFIX}-testnet"
+          fi
           BUNDLE_NAME="${BUNDLE_PREFIX}-bundle${TAG}.zip"
           gh release download "$TAG" \
             --repo "$GH_REPOSITORY" \
@@ -110,8 +118,10 @@ jobs:
             CMD="versions deploy $VERSION_ID@100% --env prod --yes"
           elif [ "$INPUT_ENVIRONMENT" = "staging" ]; then
             CMD="versions upload --env prod --message \"Rollback to $TAG\" --preview-alias staging"
+          elif [ "$INPUT_ENVIRONMENT" = "testnet" ]; then
+            CMD="deploy --env testnet"
           else
-            echo "::error::Environment '$INPUT_ENVIRONMENT' is not supported (use 'staging' or 'prod')."
+            echo "::error::Environment '$INPUT_ENVIRONMENT' is not supported (use 'staging', 'testnet' or 'prod')."
             exit 1
           fi
           echo "Wrangler command: $CMD"

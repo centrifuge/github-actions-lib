@@ -4,6 +4,9 @@ name: App Build & Deploy Release
 #   prereleased → mainnet build (bundle attached to the release) → staging
 #                 (`versions upload --preview-alias staging`, tagged with the
 #                 release tag) → optionally public-demo
+#               → optionally a parallel testnet build (own bundle attached to
+#                 the release) deployed to a dedicated testnet Worker
+#                 (`deploy --env testnet`, e.g. *.testnet.centrifuge.io)
 #   released    → promote the staged version to production
 #                 (`versions deploy <id>@100%` looked up by tag)
 #
@@ -59,6 +62,28 @@ on:
         required: false
         type: boolean
         default: false
+      deploy-testnet:
+        description: >-
+          Whether prereleases also run a parallel testnet build and deploy it
+          to the caller's `testnet` Worker (wrangler.toml `[env.testnet]`)
+        required: false
+        type: boolean
+        default: false
+      testnet-build-args:
+        description: 'Extra arguments passed to `pnpm build` for the testnet build'
+        required: false
+        type: string
+        default: '--mode testnet'
+      testnet-build-env:
+        description: 'Multiline KEY=VALUE pairs exported to the testnet build step environment'
+        required: false
+        type: string
+        default: ''
+      testnet-url:
+        description: 'Fixed testnet URL for the GitHub deployment record (falls back to the wrangler deployment URL)'
+        required: false
+        type: string
+        default: ''
       production-url:
         description: 'Fixed production URL for the GitHub deployment record (falls back to the wrangler deployment URL)'
         required: false
@@ -72,6 +97,9 @@ on:
       staging-url:
         description: 'Staging deployment URL (prereleased only)'
         value: ${{ jobs.deploy-staging.outputs.deployment-url }}
+      testnet-url:
+        description: 'Testnet deployment URL (prereleased with deploy-testnet only)'
+        value: ${{ jobs.deploy-testnet.outputs.deployment-url }}
       production-url:
         description: 'Production deployment URL (released only)'
         value: ${{ jobs.deploy-production.outputs.deployment-url }}
@@ -157,6 +185,67 @@ jobs:
         with:
           environment: public-demo
           app-name: ${{ inputs.app-name }}
+          cloudflare-api-token: ${{ secrets.cloudflare-api-token }}
+          cloudflare-account-id: ${{ inputs.cloudflare-account-id }}
+          github-token: ${{ github.token }}
+
+  # Parallel testnet pipeline: a second build (testnet mode) under the
+  # `<app-name>-testnet` artifact name — artifact names are immutable per
+  # run, so it must not collide with the mainnet build. Its bundle is
+  # attached to the release as `<bundle-prefix>-testnet-bundle<tag>.zip`,
+  # which keeps testnet rollbacks possible via app-rollback.yml.
+  build-testnet:
+    runs-on: ubuntu-latest
+    if: github.event.action == 'prereleased' && inputs.deploy-testnet
+    permissions:
+      # gh release upload of the built testnet bundle
+      contents: write
+    steps:
+      - name: '📥 Checkout Code from Release Tag'
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+
+      - name: '🔨 Build App (testnet)'
+        id: build
+        uses: centrifuge/github-actions-lib/actions/build-app@main
+        with:
+          app-name: ${{ inputs.app-name }}-testnet
+          bundle-name-prefix: ${{ format('{0}-testnet', inputs.bundle-name-prefix || inputs.app-name) }}
+          node-version: ${{ inputs.node-version }}
+          build-args: ${{ inputs.testnet-build-args }}
+          build-env: ${{ inputs.testnet-build-env }}
+          # No pool-cache-base-url: there is no testnet pool-cache Worker;
+          # testnet builds fall back to the repo's prebuilt snapshot.
+          github-token: ${{ github.token }}
+
+  # Direct deploy to the standalone testnet Worker (wrangler.toml
+  # `[env.testnet]`) — no staging alias or version promotion involved.
+  deploy-testnet:
+    runs-on: ubuntu-latest
+    needs: build-testnet
+    if: github.event.action == 'prereleased' && inputs.deploy-testnet
+    environment:
+      name: testnet
+      url: ${{ inputs.testnet-url || steps.deploy.outputs.deployment-url }}
+    permissions:
+      contents: read
+      # wrangler-action records a GitHub deployment for the environment URL
+      deployments: write
+    outputs:
+      deployment-url: ${{ steps.deploy.outputs.deployment-url }}
+    steps:
+      - name: '📥 Checkout Code'
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+
+      - name: '🚀 Deploy App to Testnet'
+        id: deploy
+        uses: centrifuge/github-actions-lib/actions/deploy-app@main
+        with:
+          environment: testnet
+          app-name: ${{ inputs.app-name }}-testnet
           cloudflare-api-token: ${{ secrets.cloudflare-api-token }}
           cloudflare-account-id: ${{ inputs.cloudflare-account-id }}
           github-token: ${{ github.token }}
