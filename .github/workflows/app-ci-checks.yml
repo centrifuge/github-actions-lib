@@ -29,9 +29,11 @@ on:
         required: false
         type: string
         # pnpm <11 hits the retired npm audit endpoint (HTTP 410); route through
-        # pnpm@11 until the apps are on pnpm >=11, then revert to plain
-        # `pnpm audit --audit-level moderate`. See pnpm/pnpm#11265.
-        default: 'pnpm --config.minimumReleaseAge=0 dlx pnpm@11.0.0-rc.1 --config.manage-package-manager-versions=false audit --audit-level moderate'
+        # a pinned stable pnpm@11 instead, until the apps are on pnpm >=11
+        # themselves, then revert to plain `pnpm audit --audit-level moderate`.
+        # Pipeline-only pin, not caller-overridable — see README "Pinned
+        # pipeline-only tool versions". See pnpm/pnpm#11265.
+        default: 'pnpm --config.minimumReleaseAge=0 dlx pnpm@11.13.0 --config.manage-package-manager-versions=false audit --audit-level moderate'
       codespell-path:
         description: 'Path scanned by codespell'
         required: false
@@ -62,8 +64,15 @@ on:
         required: false
         type: string
         # verified,unknown drops unverified pattern matches (e.g. lockfile
-        # hashes that merely look like credentials).
-        default: '--exclude-globs "**/dist/**,**/build/**" --exclude-detectors Box --results=verified,unknown'
+        # hashes that merely look like credentials). Do NOT wrap the
+        # comma-separated glob list in quotes: the upstream trufflehog action
+        # appends this value via unquoted `${ARGS:-''}` in its entrypoint
+        # script, so bash never strips the quotes — they survive as literal
+        # characters glued onto the first and last glob, silently breaking
+        # just those two (verified by reproducing the action's exact append
+        # locally). No quotes needed anyway: there are no spaces in the list,
+        # so word-splitting leaves it intact as one argument either way.
+        default: '--exclude-globs **/dist/**,**/build/** --exclude-detectors Box --results=verified,unknown'
       run-pinned-check:
         description: 'Whether to verify all GitHub Actions are SHA-pinned'
         required: false
@@ -126,9 +135,12 @@ jobs:
           persist-credentials: false
 
       - name: '🧰 Setup Toolchain'
+        # Pipeline-only pin, not caller-overridable — see README "Pinned
+        # pipeline-only tool versions". audit-command's pnpm@11 needs Node
+        # >=22.13; the app's own node-version is irrelevant to audit results.
         uses: centrifuge/github-actions-lib/actions/setup-app@main
         with:
-          node-version: ${{ inputs.node-version }}
+          node-version: '24'
 
       - name: Install dependencies
         shell: sh
@@ -138,7 +150,21 @@ jobs:
         shell: sh
         env:
           AUDIT_COMMAND: ${{ inputs.audit-command }}
-        run: eval "$AUDIT_COMMAND"
+        # npm's audit endpoint has intermittently returned its retired-endpoint
+        # 410 response even against clients that use the working bulk-advisory
+        # call (observed in production, not hypothetical) — retry a few times
+        # before failing the check on what may be a transient registry error.
+        run: |
+          n=0
+          until eval "$AUDIT_COMMAND"; do
+            n=$((n + 1))
+            if [ "$n" -ge 3 ]; then
+              echo "::error::Audit failed after $n attempts (possibly a transient registry error — see pnpm/pnpm#11265)"
+              exit 1
+            fi
+            echo "::warning::Audit attempt $n failed; retrying in 5s"
+            sleep 5
+          done
 
   secrets-scan:
     runs-on: ubuntu-latest

@@ -154,6 +154,38 @@ Every input/secret/output is documented inline in each workflow's
   ignore for this library (see the apps' `.pinact.yaml`); everything *inside*
   this library is SHA-pinned and `lib-ci.yml` enforces that.
 
+### Pinned pipeline-only tool versions (not caller-overridable, by design)
+
+Some version knobs are internal to how this library executes jobs, not to the
+apps' own toolchain — they're deliberately hardcoded literals, not
+`workflow_call` inputs, so apps can't drift them. (GitHub Actions can't source
+an input `default:` from an external file at runtime, so this table is the
+single place to look before changing any of them — not a machine-read config.)
+
+| Where | Value | Why |
+|---|---|---|
+| `app-ci-checks.yml` → `audit-command` default, embedded `pnpm@11.13.0` | exact stable release | pnpm <11 hits the retired classic audit endpoint (HTTP 410); pnpm 11 uses the working bulk-advisory endpoint. Pinned to an exact version (not `latest`) for reproducibility — bump deliberately, not automatically. |
+| `app-ci-checks.yml` → `pnpm-audit` job, `setup-app` `node-version` | `'24'` | The `pnpm@11` audit tool needs Node ≥22.13 (`node:sqlite`), independent of the app's own `node-version`. |
+| `actions/deploy-app/action.yml` → `wrangler-version` default | `'4.111.0'` | The wrangler CLI used for `versions upload`/`versions deploy`/`deploy`. No caller passes this input; every reusable workflow that deploys relies on this default. Distinct from each app's own `wrangler` devDependency (used for local `wrangler dev`) — apps may run a different wrangler locally without affecting CI. |
+| `actions/deploy-app/action.yml` → `node-version` default | `'24'` | Runs wrangler itself, not the app's build (that already happened in `build-app`). **Must satisfy `wrangler-version`'s own Node minimum** — wrangler 4.x requires Node ≥22; this default was previously `'20'`, which broke every deploy once `wrangler-version` was bumped to `4.111.0`. Bump these two together. |
+| `app-rollback.yml` → `env.WRANGLER_VERSION` | `'4.111.0'` | Same CLI, same reasoning, but this workflow calls wrangler directly rather than through `deploy-app` — kept in sync with the value above manually, not mechanically linked. |
+| `app-rollback.yml` → wrangler-install step, `setup-node` `node-version` | `'24'` | Same Node-minimum constraint as `deploy-app` above — must satisfy `env.WRANGLER_VERSION`'s minimum, not the app's own toolchain. |
+
+This is distinct from **`actions/setup-app`'s pnpm version**, which has no
+hardcoded default at all — it's resolved from each app's own `package.json`
+`"packageManager"` field, because that pnpm *is* the one developers use
+locally (`pnpm install`, `pnpm build`, …) and should stay under app control.
+
+**On the pnpm audit endpoint pin specifically:** an earlier version of this
+pin used `pnpm@11.0.0-rc.1` after testing suggested only that release worked.
+Further testing disproved that: the classic-vs-bulk-endpoint code path is
+byte-identical between that RC and later stable releases, and repeated,
+interleaved calls against `11.0.0-rc.1`, `11.0.0`, and `11.13.0` all succeeded
+consistently (confirmed against a lockfile with real known vulnerabilities, to
+rule out a silent no-op). The original RC-only failures were transient
+registry-side behavior, not a client version regression. Pin the exact stable
+release; there's no reason to run a release candidate here.
+
 ## Making changes
 
 Consumers track `@main`, so a merge here rolls out to every app's next

@@ -13,6 +13,12 @@ name: App Rollback
 # control, since the Cloudflare token itself cannot be scoped to forbid
 # version deploys.
 
+# Pipeline-only pin, not caller-overridable — see README "Pinned
+# pipeline-only tool versions". Keep in sync with actions/deploy-app's
+# wrangler-version default; both are hardcoded, not linked mechanically.
+env:
+  WRANGLER_VERSION: '4.111.0'
+
 on:
   workflow_call:
     inputs:
@@ -38,11 +44,6 @@ on:
         description: 'Cloudflare account ID (a repository variable, not a secret)'
         required: true
         type: string
-      wrangler-version:
-        description: 'Wrangler version to use'
-        required: false
-        type: string
-        default: '4.33.1'
     secrets:
       cloudflare-api-token:
         description: 'Cloudflare API token'
@@ -66,14 +67,14 @@ jobs:
           persist-credentials: false
 
       - name: '🟢 Setup Node.js'
+        # Must satisfy WRANGLER_VERSION's own minimum (wrangler 4.x requires
+        # Node >=22) — unrelated to the app's own toolchain.
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
-          node-version: '20'
+          node-version: '24'
 
       - name: '📦 Install Wrangler'
         shell: sh
-        env:
-          WRANGLER_VERSION: ${{ inputs.wrangler-version }}
         run: npm install -g "wrangler@$WRANGLER_VERSION"
 
       - name: '📦 Download Release Bundle'
@@ -127,5 +128,5 @@ jobs:
           accountId: ${{ inputs.cloudflare-account-id }}
           gitHubToken: ${{ github.token }}
           command: ${{ steps.wrangler-command.outputs.cmd }}
-          wranglerVersion: ${{ inputs.wrangler-version }}
+          wranglerVersion: ${{ env.WRANGLER_VERSION }}
         id: deploy
