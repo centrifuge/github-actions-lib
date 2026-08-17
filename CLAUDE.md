@@ -52,17 +52,26 @@ publishes production app code**. Treat every change as a supply-chain change.
 
 ## Deployment behavior — intentional decisions, do not silently revert
 
-- **Production promotion is NOT automated.** On a `released` event,
-  `app-build-deploy-release.yml` posts a Slack notification asking a Cloudflare
-  admin to promote manually; it does not run `wrangler versions deploy`. This
-  is deliberate: GitHub environment protection is unavailable on private
-  non-Enterprise repos and the Cloudflare token cannot be scoped to forbid
-  deploys, so removing the automated path is the available control. It is a
-  **process control, not a hard control**. Do not re-add an automatic prod
-  deploy without an explicit decision recorded in the PR.
+- **Production promotion is NOT automated on the release event.** On
+  `released`, `app-build-deploy-release.yml` posts a Slack notification; the
+  actual traffic shift happens through `app-promote-production.yml`, an
+  allowlist-gated `workflow_dispatch` flow mirroring centrifuge/backend's
+  activate-production model: the dispatching actor must appear in the caller
+  repo's `AUTHORIZED_DEPLOYERS` variable (empty fails closed), the workflow
+  must be dispatched from `main` (workflow YAML on main is the trust root),
+  and failed attempts alert to Slack. GitHub environment required-reviewers
+  is unavailable on private non-Enterprise repos and the Cloudflare token
+  cannot be scoped to forbid deploys, so this GitHub-identity gate is the
+  available control. It is a **process control, not a hard control**: token
+  holders can still deploy out-of-band and repo admins can edit the
+  allowlist. Do not re-add an automatic prod deploy, and do not weaken the
+  fail-closed allowlist checks, without an explicit decision recorded in the
+  PR.
 - **`app-rollback.yml`'s prod path retains `versions deploy` on purpose** —
-  it is the emergency traffic-shift path. The only control on it is
-  restricting who can dispatch the caller.
+  it is the emergency traffic-shift path — but it is gated by the same
+  `AUTHORIZED_DEPLOYERS` allowlist (fail-closed). Its `authorized-deployers`
+  input is optional only for parse-compat with existing callers; empty
+  refuses to roll back at runtime.
 - **Release bundles are immutable.** `build-app` fails rather than overwrite an
   existing release asset; the deploy/rollback flows depend on that bundle not
   changing under a fixed tag.
@@ -75,7 +84,8 @@ publishes production app code**. Treat every change as a supply-chain change.
   app-ci-checks.yml             # workflow_call: format/lint/audit/secrets-scan/pinact
   app-build-deploy-dev.yml      # workflow_call: PR preview + demo (+ Lighthouse)
   app-build-deploy-release.yml  # workflow_call: prerelease→staging, release→notify
-  app-rollback.yml              # workflow_call: prod traffic-shift / staging re-upload
+  app-promote-production.yml    # workflow_call: allowlist-gated prod traffic shift
+  app-rollback.yml              # workflow_call: gated prod traffic-shift / staging re-upload
 actions/
   setup-app/                    # pnpm (from packageManager) + node + cache
   build-app/                    # build + artifact upload + release bundle

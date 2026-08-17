@@ -6,12 +6,14 @@ name: App Rollback
 #   staging → download the release bundle and re-point the staging preview
 #             alias (`versions upload --preview-alias staging`)
 #
-# NOTE: the prod path runs the same `versions deploy @100%` command the
-# release flow deliberately withholds (app-build-deploy-release.yml notifies
-# instead of promoting). This is the emergency traffic-shift path and keeps
-# that capability on purpose — restricting who can dispatch it is the only
-# control, since the Cloudflare token itself cannot be scoped to forbid
-# version deploys.
+# NOTE: the prod path runs the same `versions deploy @100%` command as
+# gated promotion (app-promote-production.yml). It is the emergency
+# traffic-shift path and keeps that capability on purpose — but it is gated
+# by the same AUTHORIZED_DEPLOYERS allowlist (fail-closed when empty), so an
+# ordinary write user can no longer shift production traffic by dispatching
+# a rollback. `authorized-deployers` is declared optional only so existing
+# callers keep parsing during rollout; at runtime an empty value refuses to
+# roll back — callers must pass their AUTHORIZED_DEPLOYERS variable.
 
 # Pipeline-only pin, not caller-overridable — see README "Pinned
 # pipeline-only tool versions". Keep in sync with actions/deploy-app's
@@ -44,14 +46,82 @@ on:
         description: 'Cloudflare account ID (a repository variable, not a secret)'
         required: true
         type: string
+      authorized-deployers:
+        description: 'Comma-separated GitHub usernames allowed to roll back; empty fails closed at runtime. Pass the caller repo AUTHORIZED_DEPLOYERS variable. (Optional only for parse-compat during rollout.)'
+        required: false
+        type: string
+        default: ''
     secrets:
       cloudflare-api-token:
         description: 'Cloudflare API token'
         required: true
+      slack-webhook-url:
+        description: 'Slack incoming-webhook URL for failed-attempt alerts (optional; skipped when absent)'
+        required: false
 
 jobs:
+  authorize:
+    name: Authorize deployer
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Verify dispatched from main
+        id: check-ref
+        shell: bash
+        run: |
+          if [ "$GITHUB_REF" != "refs/heads/main" ]; then
+            echo "::error::Rollback must be dispatched using the workflow from main (got ref: $GITHUB_REF). The workflow YAML on main is the trust root."
+            exit 1
+          fi
+
+      - name: Check deployer authorization
+        id: check-perm
+        shell: bash
+        env:
+          AUTHORIZED_DEPLOYERS: ${{ inputs.authorized-deployers }}
+          ACTOR: ${{ github.actor }}
+        run: |
+          if [ -z "${AUTHORIZED_DEPLOYERS}" ]; then
+            echo "::error::authorized-deployers is empty; rollback fails closed. Set the AUTHORIZED_DEPLOYERS repository variable and pass it from the caller."
+            exit 1
+          fi
+
+          if printf ',%s,' "${AUTHORIZED_DEPLOYERS// /}" | grep -Fqi ",${ACTOR},"; then
+            echo "${ACTOR} is in AUTHORIZED_DEPLOYERS."
+            exit 0
+          fi
+
+          echo "::error::${ACTOR} is not listed in AUTHORIZED_DEPLOYERS."
+          exit 1
+
+      - name: Notify failed attempt
+        if: failure()
+        shell: bash
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.slack-webhook-url }}
+          APP_NAME: ${{ inputs.app-name }}
+          TAG: ${{ inputs.tag }}
+          TARGET_ENV: ${{ inputs.environment }}
+          ACTOR: ${{ github.actor }}
+        run: |
+          if [ -z "$SLACK_WEBHOOK_URL" ]; then
+            exit 0
+          fi
+          if [ "${{ steps.check-ref.outcome }}" = "failure" ]; then
+            REASON="not dispatched from main"
+          elif [ "${{ steps.check-perm.outcome }}" = "failure" ]; then
+            REASON="${ACTOR} is not authorized"
+          else
+            REASON="authorization check failed"
+          fi
+          TEXT="⚠️ *${APP_NAME}* — an attempt to roll back ${TARGET_ENV} to \`${TAG}\` failed: ${REASON}."
+          PAYLOAD=$(jq -n --arg text "$TEXT" '{text: $text}')
+          curl -sS -o /dev/null -X POST -H 'Content-type: application/json' --data "$PAYLOAD" "$SLACK_WEBHOOK_URL" || true
+
   rollback:
     name: 'Roll Back ${{ inputs.app-name }} to ${{ inputs.tag }} on ${{ inputs.environment }}'
+    needs: authorize
     runs-on: ubuntu-latest
     environment:
       name: ${{ inputs.environment == 'prod' && 'production' || 'staging' }}

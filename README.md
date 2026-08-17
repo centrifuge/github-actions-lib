@@ -12,8 +12,9 @@ consumer.
 .github/workflows/
   app-ci-checks.yml             PR quality gate: format-n-lint, pnpm-audit (own check), TruffleHog, pinact
   app-build-deploy-dev.yml      PR → preview deploy; push to main → demo deploy; optional Lighthouse
-  app-build-deploy-release.yml  prereleased → staging (+ optional public-demo); released → production
-  app-rollback.yml              manual rollback (prod: version traffic shift; staging: bundle re-upload)
+  app-build-deploy-release.yml  prereleased → staging (+ optional public-demo); released → promotion notice
+  app-promote-production.yml    allowlist-gated production promotion (workflow_dispatch caller)
+  app-rollback.yml              allowlist-gated rollback (prod: version traffic shift; staging: bundle re-upload)
   lib-ci.yml                    this repo's own CI (actionlint, pinact, yamllint)
 actions/
   setup-app/                    Node + pnpm bootstrap (pnpm version from package.json "packageManager")
@@ -96,6 +97,7 @@ workflow (called jobs can only downgrade):
 | `app-ci-checks.yml` | `contents: read`, `actions: read` |
 | `app-build-deploy-dev.yml` | `contents: read`, `deployments: write`, `id-token: write` |
 | `app-build-deploy-release.yml` | `contents: write`, `deployments: write` |
+| `app-promote-production.yml` | `contents: read`, `deployments: write` |
 | `app-rollback.yml` | `contents: read`, `deployments: write` |
 
 ### Contracts
@@ -123,19 +125,30 @@ Every input/secret/output is documented inline in each workflow's
   `slack-webhook-url`. Output: `staging-url`. **A tag must be `prereleased`
   before it can be `released`.** `prereleased` builds once and deploys to
   staging; `released` does **not** deploy — it posts a Slack notification
-  telling a Cloudflare admin to promote the staged version manually
-  (production promotion is intentionally not automated; see the workflow
-  header for why, and note it is a process control, not a hard control).
+  with the gated promotion instructions (`gh workflow run
+  promote-production.yml ...`). The notification links to the caller repo's
+  `promote-production.yml`, so name your promote caller exactly that.
   Release bundles are immutable: rebuilding a tag whose bundle already exists
   fails; cut a new prerelease, or delete the asset from the release page to
   rebuild the same tag.
+- **`app-promote-production.yml`** — required: `tag`, `app-name`,
+  `production-worker-name`, `cloudflare-account-id`, `authorized-deployers`;
+  secrets `cloudflare-api-token`, `slack-webhook-url`. Called from a
+  `workflow_dispatch` caller; shifts production traffic to the Worker version
+  staged for `tag` (`versions deploy <id>@100%`). Gated: the dispatching
+  actor must be in `authorized-deployers` (pass `vars.AUTHORIZED_DEPLOYERS`;
+  empty fails closed), the dispatch must run from `main`, and the tag's
+  commit must be on `main`. Failed attempts and successful promotions are
+  announced to Slack. Mirrors centrifuge/backend's activate-production
+  model; a process control, not a hard control (see the workflow header).
 - **`app-rollback.yml`** — required: `tag`, `app-name`,
-  `cloudflare-account-id`; secret `cloudflare-api-token`.
-  `environment: prod` (default) shifts traffic to the version tagged with
-  `tag`; `environment: staging` re-uploads the release bundle behind the
-  staging preview alias. The prod path runs the same `versions deploy`
-  command the release flow withholds — it is the emergency promotion/rollback
-  path; gate it by restricting who can dispatch the caller.
+  `cloudflare-account-id`; secret `cloudflare-api-token` (optional
+  `slack-webhook-url` for failed-attempt alerts). `environment: prod`
+  (default) shifts traffic to the version tagged with `tag`;
+  `environment: staging` re-uploads the release bundle behind the staging
+  preview alias. Gated by the same `authorized-deployers` allowlist as
+  promotion — declared optional for parse-compat, but empty **fails closed
+  at runtime**; callers must pass `vars.AUTHORIZED_DEPLOYERS`.
 
 ## Rules for consumers
 
@@ -153,6 +166,14 @@ Every input/secret/output is documented inline in each workflow's
 - **Pinning**: consumers reference `@main`. If your repo runs pinact, add an
   ignore for this library (see the apps' `.pinact.yaml`); everything *inside*
   this library is SHA-pinned and `lib-ci.yml` enforces that.
+- **`AUTHORIZED_DEPLOYERS` repository variable** (required for promotion and
+  rollback): comma-separated GitHub usernames, matched case-insensitively
+  against the dispatching actor. Empty or unset **fails closed** — nobody can
+  promote or roll back until it's populated. This gates non-admin write
+  users; repo admins can edit variables, so it's a process control layered on
+  top of (not a replacement for) branch protection, CODEOWNERS on
+  `.github/workflows/**`, and restricted repo access. Name your promote
+  caller `promote-production.yml` — the release notification links to it.
 
 ### Pinned pipeline-only tool versions (not caller-overridable, by design)
 
@@ -168,8 +189,8 @@ single place to look before changing any of them — not a machine-read config.)
 | `app-ci-checks.yml` → `pnpm-audit` job, `setup-app` `node-version` | `'24'` | The `pnpm@11` audit tool needs Node ≥22.13 (`node:sqlite`), independent of the app's own `node-version`. |
 | `actions/deploy-app/action.yml` → `wrangler-version` default | `'4.111.0'` | The wrangler CLI used for `versions upload`/`versions deploy`/`deploy`. No caller passes this input; every reusable workflow that deploys relies on this default. Distinct from each app's own `wrangler` devDependency (used for local `wrangler dev`) — apps may run a different wrangler locally without affecting CI. |
 | `actions/deploy-app/action.yml` → `node-version` default | `'24'` | Runs wrangler itself, not the app's build (that already happened in `build-app`). **Must satisfy `wrangler-version`'s own Node minimum** — wrangler 4.x requires Node ≥22; this default was previously `'20'`, which broke every deploy once `wrangler-version` was bumped to `4.111.0`. Bump these two together. |
-| `app-rollback.yml` → `env.WRANGLER_VERSION` | `'4.111.0'` | Same CLI, same reasoning, but this workflow calls wrangler directly rather than through `deploy-app` — kept in sync with the value above manually, not mechanically linked. |
-| `app-rollback.yml` → wrangler-install step, `setup-node` `node-version` | `'24'` | Same Node-minimum constraint as `deploy-app` above — must satisfy `env.WRANGLER_VERSION`'s minimum, not the app's own toolchain. |
+| `app-rollback.yml` / `app-promote-production.yml` → `env.WRANGLER_VERSION` | `'4.111.0'` | Same CLI, same reasoning, but these workflows call wrangler directly rather than through `deploy-app` — kept in sync with the value above manually, not mechanically linked. |
+| `app-rollback.yml` / `app-promote-production.yml` → wrangler-install step, `setup-node` `node-version` | `'24'` | Same Node-minimum constraint as `deploy-app` above — must satisfy `env.WRANGLER_VERSION`'s minimum, not the app's own toolchain. |
 
 This is distinct from **`actions/setup-app`'s pnpm version**, which has no
 hardcoded default at all — it's resolved from each app's own `package.json`

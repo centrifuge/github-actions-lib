@@ -4,17 +4,19 @@ name: App Build & Deploy Release
 #   prereleased → mainnet build (bundle attached to the release) → staging
 #                 (`versions upload --preview-alias staging`, tagged with the
 #                 release tag) → optionally public-demo
-#   released    → notify Slack that the staged version is ready; a Cloudflare
-#                 admin promotes it to production manually
+#   released    → notify Slack that the staged version is ready; an
+#                 authorized deployer promotes it by dispatching the app's
+#                 promote-production.yml caller (app-promote-production.yml)
 #
-# Production promotion is deliberately NOT automated. GitHub environment
-# protection (required reviewers) is unavailable on private non-Enterprise
-# repos, and the Cloudflare API token cannot be scoped to forbid version
-# deploys — so the pipeline simply does not run the promotion command. This
-# is a process control, not a hard control: anyone holding a token that can
-# deploy Worker versions (including this pipeline's own token via
-# app-rollback.yml) can still promote. It removes the automatic, unattended
-# path, not the capability.
+# Production promotion is deliberately NOT automated on the release event.
+# Promotion goes through the allowlist-gated dispatch workflow
+# (app-promote-production.yml): actor must be in the caller repo's
+# AUTHORIZED_DEPLOYERS variable, dispatched from main, audited as a workflow
+# run, failed attempts announced to Slack. That is a process control, not a
+# hard control: anyone holding a token that can deploy Worker versions can
+# still promote, and repo admins can edit the allowlist. It removes the
+# automatic, unattended path and ties promotion to a GitHub identity — it
+# does not remove the capability.
 #
 # A tag MUST be prereleased before it can be released: promotion targets the
 # version staging uploaded, and the bundle only exists after the prerelease
@@ -176,16 +178,18 @@ jobs:
           cloudflare-account-id: ${{ inputs.cloudflare-account-id }}
           github-token: ${{ github.token }}
 
-  # `released` does not deploy — it announces that the version staged for this
-  # tag is ready, and a Cloudflare admin promotes it by hand. No Cloudflare
-  # token, no wrangler, no artifact; needs only network access to post Slack.
+  # `released` does not deploy — it announces that the version staged for
+  # this tag is ready and posts the gated promotion instructions. The link
+  # assumes the caller repo names its promote caller `promote-production.yml`
+  # (documented in the README). No Cloudflare token, no wrangler, no
+  # artifact; needs only network access to post Slack.
   notify-production-promotion:
     runs-on: ubuntu-latest
     if: github.event.action == 'released'
     permissions:
       contents: read
     steps:
-      - name: '📣 Request manual production promotion'
+      - name: '📣 Request production promotion'
         shell: bash
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.slack-webhook-url }}
@@ -204,22 +208,23 @@ jobs:
           # coherent if a caller omits the worker name.
           WORKER="${WORKER_NAME:-<worker from wrangler.toml [env.prod]>}"
           RELEASE_URL="${SERVER_URL}/${REPOSITORY}/releases/tag/${TAG}"
+          PROMOTE_URL="${SERVER_URL}/${REPOSITORY}/actions/workflows/promote-production.yml"
           DASH_URL="https://dash.cloudflare.com/${ACCOUNT_ID}/workers/services/view/${WORKER}/production/deployments"
+          GH_COMMAND="gh workflow run promote-production.yml --repo ${REPOSITORY} --ref main -f tag=${TAG}"
 
           # printf per line keeps the message free of YAML/heredoc indentation.
           TEXT=$(printf '%s\n' \
-            "🚀 *${APP_NAME}* — release *${TAG}* is staged and ready to promote to production." \
-            "Staging already serves this version. Promotion to production is manual: a Cloudflare admin must run the commands below." \
+            "🚀 *${APP_NAME}* — release *${TAG}* is staged, not receiving production traffic yet." \
+            "Staging already serves this version. Promotion is gated: a deployer listed in AUTHORIZED_DEPLOYERS must dispatch the promote workflow from main." \
             "" \
-            "• Release: <${RELEASE_URL}|${TAG}>" \
-            "• Cloudflare dashboard: <${DASH_URL}|${WORKER} deployments>" \
-            "• Triggered by: ${ACTOR}" \
+            "• Release: <${RELEASE_URL}|${TAG}> — by ${ACTOR}" \
             "" \
-            "Promote from the CLI (needs a Cloudflare token allowed to deploy Worker versions):" \
+            "*To promote:*" \
             '```' \
-            "npx wrangler versions list --name ${WORKER} --env prod --json   # copy the id whose annotations.\"workers/tag\" == \"${TAG}\"" \
-            "npx wrangler versions deploy <VERSION_ID>@100% --env prod --yes" \
-            '```')
+            "${GH_COMMAND}" \
+            '```' \
+            "Or via <${PROMOTE_URL}|Promote Production> → Run workflow." \
+            "Emergency fallback: a Cloudflare admin can promote from the <${DASH_URL}|dashboard>.")
           if [ -n "$PRODUCTION_URL" ]; then
             TEXT="${TEXT}"$'\n'"Once promoted, live at ${PRODUCTION_URL}"
           fi
@@ -232,9 +237,15 @@ jobs:
 
           # Fail loudly: a swallowed notification means nobody promotes.
           if [ "$HTTP_CODE" != "200" ]; then
-            echo "::error::Slack notification failed (HTTP ${HTTP_CODE}). Promote production manually via ${DASH_URL}"
+            echo "::error::Slack notification failed (HTTP ${HTTP_CODE}). Promote via: ${GH_COMMAND}"
             exit 1
           fi
 
-          echo "### 🚀 Production promotion required" >> "$GITHUB_STEP_SUMMARY"
-          echo "Release [\`${TAG}\`](${RELEASE_URL}) is staged. A Cloudflare admin must promote it — see Slack, or [the dashboard](${DASH_URL})." >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo "### 🚀 Production promotion required"
+            echo "Release [\`${TAG}\`](${RELEASE_URL}) is staged. An authorized deployer must promote it:"
+            echo ""
+            echo "\`\`\`${GH_COMMAND}\`\`\`"
+            echo ""
+            echo "Or dispatch [Promote Production](${PROMOTE_URL})."
+          } >> "$GITHUB_STEP_SUMMARY"
