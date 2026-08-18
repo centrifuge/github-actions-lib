@@ -131,4 +131,21 @@ runs:
         WRANGLER_ENV: ${{ steps.wrangler-command.outputs.wrangler-env }}
         CF_ACCOUNT_ID: ${{ inputs.cloudflare-account-id }}
       run: |
-        echo "::warning::Preview URLs disabled for $WRANGLER_ENV. %0A Please enable from https://dash.cloudflare.com/$CF_ACCOUNT_ID/workers-and-pages"
+        # Downstream jobs (e.g. the Lighthouse check) must handle an empty
+        # deployment-url; this step only warns.
+        #
+        # Do NOT assume "Preview URLs are disabled" here. wrangler resolves the
+        # preview URL with a follow-up API call after printing the Worker
+        # Version ID, and it stays SILENT when that call fails — so an absent
+        # URL means any of: previews genuinely disabled, the API token cannot
+        # read the account's workers.dev subdomain, or no account id was
+        # supplied for the token to resolve one. Only the first is a Worker
+        # setting; list them all so the next reader does not chase the wrong
+        # one (we did).
+        if [ -n "$CF_ACCOUNT_ID" ]; then
+          WHERE="https://dash.cloudflare.com/$CF_ACCOUNT_ID/workers-and-pages"
+        else
+          WHERE="the Cloudflare dashboard (Workers & Pages -> your Worker -> Settings)"
+          echo "::warning::No cloudflare-account-id was supplied to deploy-app; wrangler must resolve the account from the token alone, which can silently break preview-URL lookup."
+        fi
+        echo "::warning::wrangler returned no preview URL for $WRANGLER_ENV. Check, in order: (1) the API token can read the account's workers.dev subdomain (Workers Scripts Read + Account Settings Read), (2) cloudflare-account-id is set, (3) Preview URLs are enabled for this Worker at $WHERE"

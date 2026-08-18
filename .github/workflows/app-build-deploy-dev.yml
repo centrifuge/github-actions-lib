@@ -131,7 +131,44 @@ jobs:
           LHCI_CONFIG: ${{ inputs.lighthouse-config }}
           DEPLOYMENT_URL: ${{ needs.deploy.outputs.deployment-url }}
         run: |
+          # deploy-app yields an empty deployment-url when Cloudflare returns
+          # no preview URL (Preview URLs disabled for the Worker) — it warns
+          # and carries on. Passing that empty value to lhci is worse than
+          # skipping: with no --collect.url it falls back to hunting for a
+          # static dist dir and fails with a misleading "could not determine
+          # staticDistDir" error. Skip instead — this config's assertions are
+          # all `off` (reports are informational), so a missing preview URL
+          # must never fail a PR.
+          if [ -z "$DEPLOYMENT_URL" ]; then
+            echo "::warning::No preview URL from the deploy job — skipping Lighthouse. Enable Preview URLs for this Worker in Cloudflare to get performance reports on PRs."
+            exit 0
+          fi
           CONFIG="$LHCI_CONFIG"
           [ -z "$CONFIG" ] && CONFIG=".lib/lighthouserc.json"
           npm install -g @lhci/cli
-          lhci autorun --config="$CONFIG" --collect.url="$DEPLOYMENT_URL"
+
+          # Tee so the hosted report link can be lifted out of the output;
+          # pipefail keeps a genuine lhci failure from being masked by tee.
+          set -o pipefail
+          lhci autorun --config="$CONFIG" --collect.url="$DEPLOYMENT_URL" 2>&1 | tee /tmp/lhci.log
+
+          # The shared config uploads to LHCI's temporary public storage and
+          # prints "Open the report at <url>". Surface that on the run summary
+          # so nobody has to expand job logs to find it. Reports are NOT kept
+          # as artifacts and that bucket expires them after a few days, so the
+          # link is only good for a short while.
+          REPORT_URL=$(grep -oE 'https://storage\.googleapis\.com/[^[:space:]]+\.report\.html' /tmp/lhci.log | head -1)
+          {
+            echo "### 📊 Lighthouse"
+            echo ""
+            echo "Tested: ${DEPLOYMENT_URL}"
+            if [ -n "$REPORT_URL" ]; then
+              echo ""
+              echo "[Open the report](${REPORT_URL}) — hosted on LHCI temporary public storage, expires after a few days."
+            else
+              echo ""
+              echo "No hosted report link found in the lhci output (upload target may not be temporary-public-storage)."
+            fi
+            echo ""
+            echo "_All assertions are \`off\` in the shared config, so this check is informational and cannot fail a PR._"
+          } >> "$GITHUB_STEP_SUMMARY"
