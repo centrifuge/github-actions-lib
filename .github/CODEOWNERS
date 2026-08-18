@@ -4,14 +4,22 @@
 # app code, with the consumer repos' secrets. Paths that change deployment
 # behavior, use secrets, or govern the security controls require review from
 # a designated owner. Any listed owner can satisfy the required review.
+#
+# The catch-all (*) at the top ensures no new file can land without a
+# codeowner review; explicit entries below override it where needed.
+
+# --- Default catch-all ---
+*                                                @gpmayorga @hieronx @gregory-kf
 
 # --- Deployment behavior & secret usage ---
 /.github/workflows/app-build-deploy-dev.yml      @gpmayorga @hieronx @gregory-kf
 /.github/workflows/app-build-deploy-release.yml  @gpmayorga @hieronx @gregory-kf
 /.github/workflows/app-promote-production.yml    @gpmayorga @hieronx @gregory-kf
 /.github/workflows/app-rollback.yml              @gpmayorga @hieronx @gregory-kf
+/.github/workflows/app-ci-checks.yml             @gpmayorga @hieronx @gregory-kf
 /actions/build-app/                              @gpmayorga @hieronx @gregory-kf
 /actions/deploy-app/                             @gpmayorga @hieronx @gregory-kf
+/actions/setup-app/                              @gpmayorga @hieronx @gregory-kf
 
 # --- Security controls & governance ---
 # lib-ci enforces SHA-pinning and lint; .pinact.yaml defines pin exceptions;
