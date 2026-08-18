@@ -1,0 +1,244 @@
+name: App Promote Production
+
+# Reusable gated production promotion. An app's thin `promote-production.yml`
+# caller (workflow_dispatch, tag input) calls this after a `released` event
+# staged a version and posted the Slack notification.
+#
+# The gate is GitHub-side, mirroring centrifuge/backend's
+# activate-production.yml: the dispatching actor must appear in the caller
+# repo's AUTHORIZED_DEPLOYERS variable (passed via the authorized-deployers
+# input; empty fails closed), and the workflow must be dispatched from main —
+# the workflow YAML on main is the trust root, never promote from a feature
+# branch. Failed attempts are announced to Slack; successful promotions are
+# logged as workflow runs tied to a GitHub identity.
+#
+# This replaces the previous out-of-band instruction ("a Cloudflare admin
+# runs wrangler by hand") with the same capability behind a GitHub-native
+# audit trail. It remains a process control, not a hard control: anyone
+# holding a Cloudflare token that can deploy Worker versions can still
+# promote, and repo admins can edit the allowlist variable. The hard boundary
+# — who holds repo write/admin access and the Cloudflare token — is unchanged.
+#
+# A tag can only be promoted if its commit is on the caller's main branch
+# (hotfix releases cut from other branches are refused; the gated rollback
+# path is the escape hatch if that is ever genuinely needed).
+
+# Pipeline-only pin, not caller-overridable — see README "Pinned
+# pipeline-only tool versions". Keep in sync with actions/deploy-app's
+# wrangler-version default and app-rollback.yml; all are hardcoded, not
+# linked mechanically.
+env:
+  WRANGLER_VERSION: '4.111.0'
+
+on:
+  workflow_call:
+    inputs:
+      tag:
+        description: 'Release tag to promote (must have been prereleased — that is when its version was staged)'
+        required: true
+        type: string
+      app-name:
+        description: 'App name (used in Slack messages and log output)'
+        required: true
+        type: string
+      production-worker-name:
+        description: 'Cloudflare Worker name for the prod environment (wrangler.toml [env.prod])'
+        required: true
+        type: string
+      cloudflare-account-id:
+        description: 'Cloudflare account ID (a repository variable, not a secret)'
+        required: true
+        type: string
+      production-url:
+        description: 'Public production URL, used for the deployment record and announcement'
+        required: false
+        type: string
+        default: ''
+      authorized-deployers:
+        description: 'Comma-separated GitHub usernames allowed to promote; empty fails closed. Pass the caller repo AUTHORIZED_DEPLOYERS variable.'
+        required: true
+        type: string
+    secrets:
+      cloudflare-api-token:
+        description: 'Cloudflare API token'
+        required: true
+      slack-webhook-url:
+        description: 'Slack incoming-webhook URL for promotion announcements and failed-attempt alerts'
+        required: true
+
+jobs:
+  authorize:
+    name: Authorize deployer
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Verify dispatched from main
+        id: check-ref
+        shell: bash
+        run: |
+          if [ "$GITHUB_REF" != "refs/heads/main" ]; then
+            echo "::error::Promotion must be dispatched using the workflow from main (got ref: $GITHUB_REF). The workflow YAML on main is the trust root."
+            exit 1
+          fi
+
+      - name: Check deployer authorization
+        id: check-perm
+        shell: bash
+        env:
+          AUTHORIZED_DEPLOYERS: ${{ inputs.authorized-deployers }}
+          ACTOR: ${{ github.actor }}
+        run: |
+          if [ -z "${AUTHORIZED_DEPLOYERS}" ]; then
+            echo "::error::authorized-deployers is empty; production promotion fails closed. Set the AUTHORIZED_DEPLOYERS repository variable in the caller repo."
+            exit 1
+          fi
+
+          if printf ',%s,' "${AUTHORIZED_DEPLOYERS// /}" | grep -Fqi ",${ACTOR},"; then
+            echo "${ACTOR} is in AUTHORIZED_DEPLOYERS."
+            exit 0
+          fi
+
+          echo "::error::${ACTOR} is not listed in AUTHORIZED_DEPLOYERS."
+          exit 1
+
+      - name: Notify failed attempt
+        if: failure()
+        shell: bash
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.slack-webhook-url }}
+          APP_NAME: ${{ inputs.app-name }}
+          TAG: ${{ inputs.tag }}
+          ACTOR: ${{ github.actor }}
+        run: |
+          if [ "${{ steps.check-ref.outcome }}" = "failure" ]; then
+            REASON="not dispatched from main"
+          elif [ "${{ steps.check-perm.outcome }}" = "failure" ]; then
+            REASON="${ACTOR} is not authorized"
+          else
+            REASON="authorization check failed"
+          fi
+          TEXT="⚠️ *${APP_NAME}* — an attempt to promote \`${TAG}\` to production failed: ${REASON}."
+          PAYLOAD=$(jq -n --arg text "$TEXT" '{text: $text}')
+          curl -sS -o /dev/null -X POST -H 'Content-type: application/json' --data "$PAYLOAD" "$SLACK_WEBHOOK_URL" || true
+
+  promote:
+    name: 'Promote ${{ inputs.app-name }} ${{ inputs.tag }} to Production'
+    needs: authorize
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+      url: ${{ inputs.production-url }}
+    permissions:
+      contents: read
+      # wrangler-action records a GitHub deployment for the environment URL
+      deployments: write
+    steps:
+      - name: '📥 Checkout Code from Release Tag'
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          ref: ${{ inputs.tag }}
+          # Full history: the on-main ancestry check below needs origin/main
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: '🔎 Verify tag is a release on main'
+        id: release
+        shell: bash
+        env:
+          TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          RELEASE_SHA="$(git rev-parse --verify "refs/tags/${TAG}^{commit}")"
+          if ! git merge-base --is-ancestor "$RELEASE_SHA" origin/main; then
+            echo "::error::Release ${TAG} (${RELEASE_SHA}) is not on main."
+            exit 1
+          fi
+          echo "release_sha=${RELEASE_SHA}" >> "$GITHUB_OUTPUT"
+
+      - name: '🟢 Setup Node.js'
+        # Must satisfy WRANGLER_VERSION's own minimum (wrangler 4.x requires
+        # Node >=22) — unrelated to the app's own toolchain.
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '24'
+
+      - name: '📦 Install Wrangler'
+        shell: sh
+        run: npm install -g "wrangler@$WRANGLER_VERSION"
+
+      - name: '⚙️ Resolve staged version'
+        id: resolve
+        shell: sh
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ inputs.cloudflare-account-id }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.cloudflare-api-token }}
+          WORKER_NAME: ${{ inputs.production-worker-name }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          VERSION_ID=$(wrangler versions list --name "$WORKER_NAME" --env prod --json | jq -r ".[] | select(.annotations.\"workers/tag\" == \"$TAG\") | .id" | head -1)
+          if [ -z "$VERSION_ID" ] || [ "$VERSION_ID" = "null" ]; then
+            echo "::error::No staged Worker version tagged $TAG on $WORKER_NAME — was the tag prereleased?"
+            echo "Available tags:"
+            wrangler versions list --name "$WORKER_NAME" --env prod --json | jq -r ".[].annotations.\"workers/tag\""
+            exit 1
+          fi
+          echo "Promoting version $VERSION_ID (tag $TAG) to 100%"
+          echo "cmd=versions deploy $VERSION_ID@100% --env prod --yes" >> "$GITHUB_OUTPUT"
+
+      - name: '🚀 Shift Production Traffic'
+        id: deploy
+        uses: cloudflare/wrangler-action@9acf94ace14e7dc412b076f2c5c20b8ce93c79cd # v3.15.0
+        with:
+          apiToken: ${{ secrets.cloudflare-api-token }}
+          accountId: ${{ inputs.cloudflare-account-id }}
+          gitHubToken: ${{ github.token }}
+          command: ${{ steps.resolve.outputs.cmd }}
+          wranglerVersion: ${{ env.WRANGLER_VERSION }}
+
+      - name: '📣 Announce promotion'
+        shell: bash
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.slack-webhook-url }}
+          APP_NAME: ${{ inputs.app-name }}
+          TAG: ${{ inputs.tag }}
+          PRODUCTION_URL: ${{ inputs.production-url }}
+          ACTOR: ${{ github.actor }}
+          SERVER_URL: ${{ github.server_url }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          RELEASE_URL="${SERVER_URL}/${REPOSITORY}/releases/tag/${TAG}"
+          TEXT="🚀 *${APP_NAME}* — <${RELEASE_URL}|${TAG}> is now live in production (promoted by ${ACTOR})."
+          if [ -n "$PRODUCTION_URL" ]; then
+            TEXT="${TEXT} ${PRODUCTION_URL}"
+          fi
+          PAYLOAD=$(jq -n --arg text "$TEXT" '{text: $text}')
+          HTTP_CODE=$(curl -sS -o /tmp/slack_resp.txt -w '%{http_code}' \
+            -X POST -H 'Content-type: application/json' \
+            --data "$PAYLOAD" "$SLACK_WEBHOOK_URL")
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "::warning::Slack promotion notice failed (HTTP ${HTTP_CODE}): $(cat /tmp/slack_resp.txt)"
+          fi
+          echo "### 🚀 ${TAG} promoted to production" >> "$GITHUB_STEP_SUMMARY"
+          echo "Promoted by ${ACTOR}. Release: [\`${TAG}\`](${RELEASE_URL})" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Notify failed promotion
+        if: failure()
+        shell: bash
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.slack-webhook-url }}
+          APP_NAME: ${{ inputs.app-name }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          if [ "${{ steps.release.outcome }}" = "failure" ]; then
+            REASON="release tag ${TAG} did not resolve to a commit on main"
+          elif [ "${{ steps.resolve.outcome }}" = "failure" ]; then
+            REASON="no staged Worker version is tagged ${TAG} (was it prereleased?)"
+          elif [ "${{ steps.deploy.outcome }}" = "failure" ]; then
+            REASON="wrangler failed shifting traffic — production is unchanged or check the run"
+          else
+            REASON="unexpected failure — check the workflow run"
+          fi
+          TEXT="⚠️ *${APP_NAME}* — an attempt to promote \`${TAG}\` to production failed: ${REASON}."
+          PAYLOAD=$(jq -n --arg text "$TEXT" '{text: $text}')
+          curl -sS -o /dev/null -X POST -H 'Content-type: application/json' --data "$PAYLOAD" "$SLACK_WEBHOOK_URL" || true
