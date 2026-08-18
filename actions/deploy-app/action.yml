@@ -131,4 +131,13 @@ runs:
         WRANGLER_ENV: ${{ steps.wrangler-command.outputs.wrangler-env }}
         CF_ACCOUNT_ID: ${{ inputs.cloudflare-account-id }}
       run: |
-        echo "::warning::Preview URLs disabled for $WRANGLER_ENV. %0A Please enable from https://dash.cloudflare.com/$CF_ACCOUNT_ID/workers-and-pages"
+        # Downstream jobs (e.g. the Lighthouse check) must handle an empty
+        # deployment-url; this step only warns. Link to the account's Workers
+        # page when we know the account id — interpolating an empty one
+        # yields a broken `dash.cloudflare.com//workers-and-pages` URL.
+        if [ -n "$CF_ACCOUNT_ID" ]; then
+          WHERE="https://dash.cloudflare.com/$CF_ACCOUNT_ID/workers-and-pages"
+        else
+          WHERE="the Cloudflare dashboard (Workers & Pages -> your Worker -> Settings)"
+        fi
+        echo "::warning::No preview URL returned for $WRANGLER_ENV (Preview URLs likely disabled for this Worker). %0A Enable them from $WHERE"

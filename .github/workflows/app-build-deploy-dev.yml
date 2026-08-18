@@ -131,6 +131,18 @@ jobs:
           LHCI_CONFIG: ${{ inputs.lighthouse-config }}
           DEPLOYMENT_URL: ${{ needs.deploy.outputs.deployment-url }}
         run: |
+          # deploy-app yields an empty deployment-url when Cloudflare returns
+          # no preview URL (Preview URLs disabled for the Worker) — it warns
+          # and carries on. Passing that empty value to lhci is worse than
+          # skipping: with no --collect.url it falls back to hunting for a
+          # static dist dir and fails with a misleading "could not determine
+          # staticDistDir" error. Skip instead — this config's assertions are
+          # all `off` (reports are informational), so a missing preview URL
+          # must never fail a PR.
+          if [ -z "$DEPLOYMENT_URL" ]; then
+            echo "::warning::No preview URL from the deploy job — skipping Lighthouse. Enable Preview URLs for this Worker in Cloudflare to get performance reports on PRs."
+            exit 0
+          fi
           CONFIG="$LHCI_CONFIG"
           [ -z "$CONFIG" ] && CONFIG=".lib/lighthouserc.json"
           npm install -g @lhci/cli
