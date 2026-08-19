@@ -142,14 +142,18 @@ Every input/secret/output is documented inline in each workflow's
   Release bundles are immutable: rebuilding a tag whose bundle already exists
   fails; cut a new prerelease, or delete the asset from the release page to
   rebuild the same tag.
-- **`app-promote-production.yml`** — required: `tag`, `app-name`,
+- **`app-promote-production.yml`** — required: `app-name`,
   `production-worker-name`, `cloudflare-account-id`, `authorized-deployers`;
   secrets `cloudflare-api-token`, `slack-webhook-url`. Called from a
-  `workflow_dispatch` caller; shifts production traffic to the Worker version
-  staged for `tag` (`versions deploy <id>@100%`). Gated: the dispatching
-  actor must be in `authorized-deployers` (pass `vars.AUTHORIZED_DEPLOYERS`;
-  empty fails closed), the dispatch must run from `main`, and the tag's
-  commit must be on `main`. Failed attempts and successful promotions are
+  `workflow_dispatch` caller with no inputs of its own. **No `tag` input** —
+  it resolves GitHub's own "latest release" (excludes drafts and
+  prereleases) and shifts production traffic to the Worker version staged
+  for that tag (`versions deploy <id>@100%`). An arbitrary tag can't be
+  promoted through this workflow; that's what the gated rollback path is
+  for. Gated: the dispatching actor must be in `authorized-deployers` (pass
+  `vars.AUTHORIZED_DEPLOYERS`; empty fails closed), the dispatch must run
+  from `main`, and the resolved tag's commit must be on `main`. Failed
+  attempts and successful promotions are
   announced to Slack. Mirrors centrifuge/backend's activate-production
   model; a process control, not a hard control (see the workflow header).
 - **`app-rollback.yml`** — required: `tag`, `app-name`,

@@ -67,6 +67,14 @@ publishes production app code**. Treat every change as a supply-chain change.
   allowlist. Do not re-add an automatic prod deploy, and do not weaken the
   fail-closed allowlist checks, without an explicit decision recorded in the
   PR.
+- **`app-promote-production.yml` takes no `tag` input.** It resolves
+  GitHub's own "latest release" (excludes drafts and prereleases) via
+  `gh api repos/{owner}/{repo}/releases/latest` and promotes that. This is
+  deliberate, not a missing feature: the tag a `released` event just staged
+  *is* GitHub's latest release at that moment, by construction, so deriving
+  it removes the only place an operator could type an arbitrary tag into
+  this workflow. Promoting a specific non-latest tag is what
+  `app-rollback.yml` is for. Do not re-add a `tag` input here.
 - **`app-rollback.yml`'s prod path retains `versions deploy` on purpose** —
   it is the emergency traffic-shift path — but it is gated by the same
   `AUTHORIZED_DEPLOYERS` allowlist (fail-closed). Its `authorized-deployers`
