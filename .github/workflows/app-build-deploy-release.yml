@@ -4,9 +4,11 @@ name: App Build & Deploy Release
 #   prereleased → mainnet build (bundle attached to the release) → staging
 #                 (`versions upload --preview-alias staging`, tagged with the
 #                 release tag) → optionally public-demo
-#               → optionally a parallel testnet build (own bundle attached to
-#                 the release) deployed to a dedicated testnet Worker
-#                 (`deploy --env testnet`, e.g. *.testnet.centrifuge.io)
+#               → a parallel testnet build (own bundle attached to the
+#                 release) deployed to a dedicated testnet Worker
+#                 (`deploy --env testnet`), for callers whose wrangler.toml
+#                 declares an `[env.testnet]` section — that section is the
+#                 opt-in, there is no caller input for it
 #   released    → notify Slack that the staged version is ready; an
 #                 authorized deployer promotes it by dispatching the app's
 #                 promote-production.yml caller (app-promote-production.yml)
@@ -74,13 +76,8 @@ on:
         required: false
         type: boolean
         default: false
-      deploy-testnet:
-        description: >-
-          Whether prereleases also run a parallel testnet build and deploy it
-          to the caller's `testnet` Worker (wrangler.toml `[env.testnet]`)
-        required: false
-        type: boolean
-        default: false
+      # No deploy-testnet / testnet-url inputs on purpose — both are read from
+      # the caller's wrangler.toml (see the detect-testnet job).
       testnet-build-args:
         description: 'Extra arguments passed to `pnpm build` for the testnet build'
         required: false
@@ -88,11 +85,6 @@ on:
         default: '--mode testnet'
       testnet-build-env:
         description: 'Multiline KEY=VALUE pairs exported to the testnet build step environment'
-        required: false
-        type: string
-        default: ''
-      testnet-url:
-        description: 'Fixed testnet URL for the GitHub deployment record (falls back to the wrangler deployment URL)'
         required: false
         type: string
         default: ''
@@ -206,6 +198,75 @@ jobs:
           cloudflare-account-id: ${{ inputs.cloudflare-account-id }}
           github-token: ${{ github.token }}
 
+  # The app's own wrangler.toml decides whether it gets a testnet deploy: an
+  # `[env.testnet]` section IS the opt-in, and its custom-domain route is the
+  # public URL. Deliberately not a caller input — the Worker and its domain
+  # already have to be declared there, so a second "yes I want testnet" flag
+  # in the caller workflow would be a duplicate that can drift. Adding a
+  # testnet deployment is then a config change in the app repo, with no
+  # caller-workflow edit and no lock-step with this library.
+  #
+  # Parsed with tomllib rather than grep so comments, key order and quoting
+  # can't change the answer.
+  detect-testnet:
+    runs-on: ubuntu-latest
+    if: github.event.action == 'prereleased'
+    permissions:
+      contents: read
+    outputs:
+      enabled: ${{ steps.detect.outputs.enabled }}
+      url: ${{ steps.detect.outputs.url }}
+    steps:
+      - name: '📥 Checkout Code from Release Tag'
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+
+      - name: '🔎 Detect [env.testnet] in wrangler.toml'
+        id: detect
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - >> "$GITHUB_OUTPUT" <<'PY'
+          import pathlib, sys, tomllib
+
+          path = pathlib.Path("wrangler.toml")
+          enabled, url = False, ""
+
+          if path.is_file():
+              try:
+                  with path.open("rb") as handle:
+                      config = tomllib.load(handle)
+              except tomllib.TOMLDecodeError as exc:
+                  # Fail loudly: silently skipping testnet would look like the
+                  # app simply opted out.
+                  print(f"::error::wrangler.toml is not valid TOML: {exc}", file=sys.stderr)
+                  raise SystemExit(1)
+
+              testnet = (config.get("env") or {}).get("testnet")
+              if testnet is not None:
+                  enabled = True
+                  for route in testnet.get("routes") or []:
+                      if isinstance(route, dict) and route.get("custom_domain") and route.get("pattern"):
+                          url = f"https://{route['pattern']}"
+                          break
+
+          print(f"enabled={'true' if enabled else 'false'}")
+          print(f"url={url}")
+          PY
+
+      - name: '📋 Summary'
+        shell: bash
+        env:
+          ENABLED: ${{ steps.detect.outputs.enabled }}
+          URL: ${{ steps.detect.outputs.url }}
+        run: |
+          if [ "$ENABLED" = "true" ]; then
+            echo "Testnet deploy enabled by wrangler.toml [env.testnet]${URL:+ → $URL}" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "No [env.testnet] in wrangler.toml — skipping the testnet leg." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
   # Parallel testnet pipeline: a second build (testnet mode) under the
   # `<app-name>-testnet` artifact name — artifact names are immutable per
   # run, so it must not collide with the mainnet build. Its bundle is
@@ -216,7 +277,8 @@ jobs:
   # blocked by staging, and it never touches the production Worker.
   build-testnet:
     runs-on: ubuntu-latest
-    if: github.event.action == 'prereleased' && inputs.deploy-testnet
+    needs: detect-testnet
+    if: github.event.action == 'prereleased' && needs.detect-testnet.outputs.enabled == 'true'
     # Mirrors `build`/staging: any protection rule the caller puts on the
     # testnet environment gates the build too, not just the deploy.
     environment: testnet
@@ -246,11 +308,13 @@ jobs:
   # `[env.testnet]`) — no staging alias or version promotion involved.
   deploy-testnet:
     runs-on: ubuntu-latest
-    needs: build-testnet
-    if: github.event.action == 'prereleased' && inputs.deploy-testnet
+    needs: [detect-testnet, build-testnet]
+    if: github.event.action == 'prereleased' && needs.detect-testnet.outputs.enabled == 'true'
     environment:
       name: testnet
-      url: ${{ inputs.testnet-url || steps.deploy.outputs.deployment-url }}
+      # The custom domain from wrangler.toml; falls back to whatever URL
+      # wrangler reports if the section declares no custom-domain route.
+      url: ${{ needs.detect-testnet.outputs.url || steps.deploy.outputs.deployment-url }}
     permissions:
       contents: read
       # wrangler-action records a GitHub deployment for the environment URL

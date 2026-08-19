@@ -75,14 +75,22 @@ publishes production app code**. Treat every change as a supply-chain change.
 - **Release bundles are immutable.** `build-app` fails rather than overwrite an
   existing release asset; the deploy/rollback flows depend on that bundle not
   changing under a fixed tag.
-- **The testnet leg is a second, independent pipeline on the same prerelease**
-  (`deploy-testnet: true`), not a variant of the mainnet one: its own build
-  (`--mode testnet`), its own run artifact and release bundle, and a direct
-  `wrangler deploy --env testnet` to a standalone Worker. It deliberately does
-  **not** use the staging preview alias or version promotion — testnet serves a
-  permanent URL and has no promotion step — and it never touches the production
-  Worker. Keep the artifact/bundle names suffixed; colliding with the mainnet
-  build's names would make one overwrite the other.
+- **The testnet leg is a second, independent pipeline on the same prerelease**,
+  not a variant of the mainnet one: its own build (`--mode testnet`), its own
+  run artifact and release bundle, and a direct `wrangler deploy --env testnet`
+  to a standalone Worker. It deliberately does **not** use the staging preview
+  alias or version promotion — testnet serves a permanent URL and has no
+  promotion step — and it never touches the production Worker. Keep the
+  artifact/bundle names suffixed; colliding with the mainnet build's names
+  would make one overwrite the other.
+- **The testnet leg activates from the caller's `wrangler.toml`, not an input.**
+  `detect-testnet` parses it with `tomllib` and enables the leg when
+  `[env.testnet]` exists, taking the deployment URL from that section's
+  `custom_domain` route. This is deliberate: a caller input would force every
+  consumer into a workflow PR to adopt the feature and would duplicate a fact
+  wrangler.toml already states. Do not re-add a `deploy-testnet`/`testnet-url`
+  input. When adding future environments, follow the same pattern (README,
+  "Adding an environment") and parse with `tomllib`, never `grep`.
 
 ## Layout
 

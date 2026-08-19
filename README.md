@@ -121,13 +121,16 @@ Every input/secret/output is documented inline in each workflow's
 - **`app-build-deploy-release.yml`** — same core contract plus
   `bundle-name-prefix` (release zip name, defaults to `app-name`),
   `pool-cache-base-url`, `deploy-public-demo`, `production-url`,
-  `production-worker-name`, and the parallel testnet pipeline:
-  `deploy-testnet` (prereleases also run a second, testnet-mode build and
-  `wrangler deploy --env testnet` it to the caller's standalone testnet
-  Worker), `testnet-build-args` (default `--mode testnet`),
-  `testnet-build-env`, `testnet-url`. The testnet build uploads its own
-  artifact (`<app-name>-testnet-build-<sha>`) and attaches its own release
-  bundle (`<bundle-prefix>-testnet-bundle<tag>.zip`). Secrets:
+  `production-worker-name`, plus `testnet-build-args` (default
+  `--mode testnet`) and `testnet-build-env` for the parallel testnet
+  pipeline. **The testnet leg has no opt-in input**: prereleases run a
+  second, testnet-mode build and `wrangler deploy --env testnet` it
+  whenever the caller's `wrangler.toml` declares an `[env.testnet]`
+  section, and the GitHub deployment URL is that section's custom-domain
+  route. Declaring the Worker is the opt-in — see "Adding an environment".
+  The testnet build uploads its own artifact
+  (`<app-name>-testnet-build-<sha>`) and attaches its own release bundle
+  (`<bundle-prefix>-testnet-bundle<tag>.zip`). Secrets:
   `cloudflare-api-token`, `slack-webhook-url`. Outputs: `staging-url`,
   `testnet-url`. **A tag must be `prereleased` before it can be
   `released`.** `prereleased` builds once and deploys to staging;
@@ -159,6 +162,32 @@ Every input/secret/output is documented inline in each workflow's
   `authorized-deployers` allowlist as promotion — for every environment,
   testnet included — declared optional for parse-compat, but empty **fails
   closed at runtime**; callers must pass `vars.AUTHORIZED_DEPLOYERS`.
+
+## Adding an environment
+
+Prefer deriving a deployment target from config the app repo already owns
+over adding a caller input for it. A caller input means every consumer opens
+a workflow PR to adopt the feature, and it duplicates a fact (`this app has a
+testnet Worker`) that `wrangler.toml` already states — two places to keep in
+sync, one of which can silently drift.
+
+The testnet leg is the worked example: it activates purely on the presence of
+`[env.testnet]` in the caller's `wrangler.toml`, and takes its public URL from
+that section's `custom_domain` route. Adopting it is a config change in the
+app repo — no caller-workflow edit, and no ordering constraint against this
+library, because the caller passes no new inputs that an older `main` would
+reject.
+
+Parse such config with `tomllib` in a `python3` step (as `detect-testnet`
+does), not `grep`. `actions/deploy-app` still greps `wrangler.toml` for the
+prod Worker name; that predates this rule and is fragile — comments, key
+order or quoting can change its answer. Don't add more of it.
+
+The trade-off is explicitness: a Worker section added purely for local
+`wrangler dev` becomes a real deploy target. That is the intended contract —
+declaring a Worker with a public custom domain *is* declaring an environment —
+but it's the reason to keep this pattern for deployment targets rather than
+for behavioral flags.
 
 ## Rules for consumers
 
