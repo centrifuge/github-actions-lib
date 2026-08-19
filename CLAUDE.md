@@ -67,14 +67,10 @@ publishes production app code**. Treat every change as a supply-chain change.
   allowlist. Do not re-add an automatic prod deploy, and do not weaken the
   fail-closed allowlist checks, without an explicit decision recorded in the
   PR.
-- **`app-promote-production.yml` takes no `tag` input.** It resolves
-  GitHub's own "latest release" (excludes drafts and prereleases) via
-  `gh api repos/{owner}/{repo}/releases/latest` and promotes that. This is
-  deliberate, not a missing feature: the tag a `released` event just staged
-  *is* GitHub's latest release at that moment, by construction, so deriving
-  it removes the only place an operator could type an arbitrary tag into
-  this workflow. Promoting a specific non-latest tag is what
-  `app-rollback.yml` is for. Do not re-add a `tag` input here.
+- **`app-promote-production.yml` takes no `tag` input.** It resolves GitHub's
+  latest release (excludes drafts and prereleases) and promotes that, so
+  there is nowhere to type an arbitrary tag. Promoting a specific non-latest
+  tag is `app-rollback.yml`'s job. Do not re-add a `tag` input here.
 - **`app-rollback.yml`'s prod path retains `versions deploy` on purpose** —
   it is the emergency traffic-shift path — but it is gated by the same
   `AUTHORIZED_DEPLOYERS` allowlist (fail-closed). Its `authorized-deployers`
@@ -83,22 +79,17 @@ publishes production app code**. Treat every change as a supply-chain change.
 - **Release bundles are immutable.** `build-app` fails rather than overwrite an
   existing release asset; the deploy/rollback flows depend on that bundle not
   changing under a fixed tag.
-- **The testnet leg is a second, independent pipeline on the same prerelease**,
-  not a variant of the mainnet one: its own build (`--mode testnet`), its own
-  run artifact and release bundle, and a direct `wrangler deploy --env testnet`
-  to a standalone Worker. It deliberately does **not** use the staging preview
-  alias or version promotion — testnet serves a permanent URL and has no
-  promotion step — and it never touches the production Worker. Keep the
-  artifact/bundle names suffixed; colliding with the mainnet build's names
-  would make one overwrite the other.
-- **The testnet leg activates from the caller's `wrangler.toml`, not an input.**
-  `detect-testnet` parses it with `tomllib` and enables the leg when
-  `[env.testnet]` exists, taking the deployment URL from that section's
-  `custom_domain` route. This is deliberate: a caller input would force every
-  consumer into a workflow PR to adopt the feature and would duplicate a fact
-  wrangler.toml already states. Do not re-add a `deploy-testnet`/`testnet-url`
-  input. When adding future environments, follow the same pattern (README,
-  "Adding an environment") and parse with `tomllib`, never `grep`.
+- **The testnet leg is a second, independent pipeline on the same prerelease**:
+  its own build (`--mode testnet`), artifact and release bundle, and a direct
+  `wrangler deploy --env testnet` to a standalone Worker — no staging alias or
+  version promotion, and it never touches the production Worker. Keep the
+  artifact/bundle names suffixed or the two builds overwrite each other.
+- **It activates from the caller's `wrangler.toml`, not an input.**
+  `detect-testnet` enables the leg when `[env.testnet]` exists and takes the
+  deployment URL from its `custom_domain` route. Do not re-add a
+  `deploy-testnet`/`testnet-url` input; for future environments follow the
+  same pattern (README, "Adding an environment") and parse with `tomllib`,
+  never `grep`.
 
 ## Layout
 

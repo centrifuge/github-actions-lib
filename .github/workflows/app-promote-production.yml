@@ -4,18 +4,10 @@ name: App Promote Production
 # caller (workflow_dispatch, no inputs) calls this after a `released` event
 # staged a version and posted the Slack notification.
 #
-# There is no tag input: promotion always targets GitHub's own notion of the
-# "latest release" (GET /repos/{owner}/{repo}/releases/latest — the most
-# recent release that is not a draft and not marked prerelease). That is
-# exactly the tag this pipeline just finished staging when it flips from
-# `prereleased` to `released`, which is what triggers the Slack notification
-# asking someone to promote in the first place — so "latest release" and
-# "the tag that's supposed to go to prod right now" coincide by construction.
-# If a newer tag gets prereleased afterwards (staging moves ahead of it),
-# `releases/latest` still correctly returns the older, actually-released tag
-# until someone releases the newer one — the intended gate. This is
-# deliberate: promoting an arbitrary caller-supplied tag is what the gated
-# rollback path is for, not this workflow.
+# There is no tag input: promotion targets GitHub's latest release (excludes
+# drafts and prereleases), which is the tag the `released` event just staged.
+# A newer prereleased tag does not become promotable until it is released.
+# Promoting some other tag is app-rollback.yml's job, not this one.
 #
 # The gate is GitHub-side, mirroring centrifuge/backend's
 # activate-production.yml: the dispatching actor must appear in the caller

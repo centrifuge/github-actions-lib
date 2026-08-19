@@ -18,11 +18,8 @@ name: App Rollback
 # callers keep parsing during rollout; at runtime an empty value refuses to
 # roll back — callers must pass their AUTHORIZED_DEPLOYERS variable.
 #
-# The allowlist gate is deliberately NOT carved out for the non-production
-# environments: one authorization path for every rollback target is easier
-# to reason about than a per-environment exemption, and testnet serves a
-# permanent public URL too. Rolling testnet back therefore also requires an
-# authorized deployer.
+# The gate applies to every environment, not just prod — testnet and staging
+# rollbacks need an authorized deployer too.
 
 # Pipeline-only pin, not caller-overridable — see README "Pinned
 # pipeline-only tool versions". Keep in sync with actions/deploy-app's
