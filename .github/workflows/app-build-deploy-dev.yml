@@ -1,8 +1,9 @@
 name: App Build & Deploy Dev
 
-# Reusable test-environment pipeline:
-#   pull_request → build (testnet) → deploy to `preview` (wrangler env `dev`) → Lighthouse
-#   push to main → build (testnet) → deploy to `demo` (wrangler env `dev`, direct deploy)
+# Reusable test-environment pipeline. Both legs build in testnet mode and
+# target the caller's `[env.nightly]` Worker:
+#   pull_request → `preview`: an unpromoted version, per-PR URL → Lighthouse
+#   push to main → `nightly`: direct deploy, so the Worker's URL tracks main
 #
 # GitHub Environments resolve against the caller's repo, so protection rules
 # stay per-app.
@@ -79,7 +80,7 @@ jobs:
       id-token: write
     runs-on: ubuntu-latest
     environment:
-      name: ${{ github.event_name == 'pull_request' && 'preview' || 'demo' }}
+      name: ${{ github.event_name == 'pull_request' && 'preview' || 'nightly' }}
       url: ${{ steps.deploy.outputs.deployment-url }}
     outputs:
       deployment-url: ${{ steps.deploy.outputs.deployment-url }}
@@ -93,7 +94,7 @@ jobs:
         id: deploy
         uses: centrifuge/github-actions-lib/actions/deploy-app@main
         with:
-          environment: ${{ github.event_name == 'pull_request' && 'dev' || 'demo' }}
+          environment: ${{ github.event_name == 'pull_request' && 'preview' || 'nightly' }}
           app-name: ${{ inputs.app-name }}
           cloudflare-api-token: ${{ secrets.cloudflare-api-token }}
           cloudflare-account-id: ${{ inputs.cloudflare-account-id }}

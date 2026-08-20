@@ -6,7 +6,7 @@ description: >-
 
 inputs:
   environment:
-    description: 'Deployment environment (dev, demo, public-demo, staging, testnet, prod)'
+    description: 'Deployment environment (preview, nightly, demo, staging, prod)'
     required: true
   app-name:
     description: 'Prefix used for the run-scoped build artifact name (must match build-app)'
@@ -74,13 +74,13 @@ runs:
         GITHUB_REF_NAME: ${{ github.ref_name }}
         PR_NUMBER: ${{ github.event.pull_request.number }}
       run: |
-        # Map pipeline environment names to wrangler environment names
-        if [ "$INPUT_ENVIRONMENT" = "demo" ]; then
-          WRANGLER_ENV="dev"
-        elif [ "$INPUT_ENVIRONMENT" = "public-demo" ]; then
-          WRANGLER_ENV="demo"
-        elif [ "$INPUT_ENVIRONMENT" = "staging" ]; then
+        # Pipeline and wrangler environment names match, except: staging is a
+        # version alias on the prod Worker, and PR previews are unpromoted
+        # versions of the nightly Worker.
+        if [ "$INPUT_ENVIRONMENT" = "staging" ]; then
           WRANGLER_ENV="prod"
+        elif [ "$INPUT_ENVIRONMENT" = "preview" ]; then
+          WRANGLER_ENV="nightly"
         else
           WRANGLER_ENV="$INPUT_ENVIRONMENT"
         fi
@@ -99,12 +99,12 @@ runs:
             echo "Error: No version found for tag $GITHUB_REF_NAME"
             exit 1
           fi
-        elif [ "$INPUT_ENVIRONMENT" = "dev" ]; then
-          # PR: Upload with PR info
+        elif [ "$INPUT_ENVIRONMENT" = "preview" ]; then
+          # PR: Upload an unpromoted version, tagged with the PR
           SHORT_SHA=$(echo "$GITHUB_SHA" | cut -c1-7)
           CMD="versions upload --env $WRANGLER_ENV --tag $SHORT_SHA --message \"PR #$PR_NUMBER - $SHORT_SHA\""
-        elif [ "$INPUT_ENVIRONMENT" = "demo" ] || [ "$INPUT_ENVIRONMENT" = "public-demo" ] || [ "$INPUT_ENVIRONMENT" = "testnet" ]; then
-          # Demo/testnet environments: Direct deploy to a standalone Worker
+        elif [ "$INPUT_ENVIRONMENT" = "nightly" ] || [ "$INPUT_ENVIRONMENT" = "demo" ]; then
+          # Standalone Workers: direct deploy
           CMD="deploy --env $WRANGLER_ENV"
         else
           echo "Error: Environment '$INPUT_ENVIRONMENT' is not defined or supported."

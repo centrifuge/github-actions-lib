@@ -3,10 +3,10 @@ name: App Build & Deploy Release
 # Reusable release pipeline, driven by the caller's `release` events:
 #   prereleased → mainnet build (bundle attached to the release) → staging
 #                 (`versions upload --preview-alias staging`, tagged with the
-#                 release tag) → optionally public-demo
-#               → for callers whose wrangler.toml declares `[env.testnet]`, a
-#                 parallel testnet build (own bundle) deployed to that Worker
-#                 (`deploy --env testnet`)
+#                 release tag)
+#               → for callers whose wrangler.toml declares `[env.demo]`, a
+#                 parallel testnet-mode build (own bundle) deployed to that
+#                 Worker (`deploy --env demo`)
 #   released    → notify Slack that the staged version is ready; an
 #                 authorized deployer promotes it by dispatching the app's
 #                 promote-production.yml caller (app-promote-production.yml)
@@ -29,10 +29,10 @@ name: App Build & Deploy Release
 # whose bundle already exists fails. Cut a new prerelease for new code, or
 # delete the asset from the release page to rebuild the same tag.
 #
-# GitHub Environments (`staging`, `public-demo`, `testnet`) resolve against
-# the caller's repo. Caller permissions ceiling: contents: write (release
-# bundle upload), deployments: write (staging deployment record). The
-# released path only reads and posts to Slack, so it needs no extra scopes.
+# GitHub Environments (`staging`, `demo`) resolve against the caller's repo.
+# Caller permissions ceiling: contents: write (release bundle upload),
+# deployments: write (deployment records). The released path only reads and
+# posts to Slack, so it needs no extra scopes.
 
 on:
   workflow_call:
@@ -69,18 +69,13 @@ on:
         description: 'Cloudflare account ID (a repository variable, not a secret)'
         required: true
         type: string
-      deploy-public-demo:
-        description: 'Whether prereleases also deploy to the public-demo environment'
-        required: false
-        type: boolean
-        default: false
-      testnet-build-args:
-        description: 'Extra arguments passed to `pnpm build` for the testnet build'
+      demo-build-args:
+        description: 'Extra arguments passed to `pnpm build` for the demo build'
         required: false
         type: string
         default: '--mode testnet'
-      testnet-build-env:
-        description: 'Multiline KEY=VALUE pairs exported to the testnet build step environment'
+      demo-build-env:
+        description: 'Multiline KEY=VALUE pairs exported to the demo build step environment'
         required: false
         type: string
         default: ''
@@ -105,9 +100,9 @@ on:
       staging-url:
         description: 'Staging deployment URL (prereleased only)'
         value: ${{ jobs.deploy-staging.outputs.deployment-url }}
-      testnet-url:
-        description: 'Testnet deployment URL (prereleased with deploy-testnet only)'
-        value: ${{ jobs.deploy-testnet.outputs.deployment-url }}
+      demo-url:
+        description: 'Demo deployment URL (prereleased, when the caller declares [env.demo])'
+        value: ${{ jobs.deploy-demo.outputs.deployment-url }}
 
 jobs:
   # One build per release, shared via `needs: build`. Artifact names are
@@ -168,36 +163,10 @@ jobs:
           cloudflare-account-id: ${{ inputs.cloudflare-account-id }}
           github-token: ${{ github.token }}
 
-  deploy-public-demo:
-    runs-on: ubuntu-latest
-    needs: build
-    if: github.event.action == 'prereleased' && inputs.deploy-public-demo
-    environment:
-      name: public-demo
-      url: ${{ steps.deploy.outputs.deployment-url }}
-    permissions:
-      contents: read
-      deployments: write
-    steps:
-      - name: '📥 Checkout Code'
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
-        with:
-          persist-credentials: false
-
-      - name: '🚀 Deploy App to Public Demo'
-        id: deploy
-        uses: centrifuge/github-actions-lib/actions/deploy-app@main
-        with:
-          environment: public-demo
-          app-name: ${{ inputs.app-name }}
-          cloudflare-api-token: ${{ secrets.cloudflare-api-token }}
-          cloudflare-account-id: ${{ inputs.cloudflare-account-id }}
-          github-token: ${{ github.token }}
-
-  # An `[env.testnet]` section in the caller's wrangler.toml is the opt-in,
+  # An `[env.demo]` section in the caller's wrangler.toml is the opt-in,
   # and its custom-domain route is the public URL. Parsed with tomllib rather
   # than grep so comments, key order and quoting can't change the answer.
-  detect-testnet:
+  detect-demo:
     runs-on: ubuntu-latest
     if: github.event.action == 'prereleased'
     permissions:
@@ -211,7 +180,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: '🔎 Detect [env.testnet] in wrangler.toml'
+      - name: '🔎 Detect [env.demo] in wrangler.toml'
         id: detect
         shell: bash
         run: |
@@ -227,15 +196,15 @@ jobs:
                   with path.open("rb") as handle:
                       config = tomllib.load(handle)
               except tomllib.TOMLDecodeError as exc:
-                  # Fail loudly: silently skipping testnet would look like the
-                  # app simply opted out.
+                  # Fail loudly: silently skipping the demo leg would look
+                  # like the app simply opted out.
                   print(f"::error::wrangler.toml is not valid TOML: {exc}", file=sys.stderr)
                   raise SystemExit(1)
 
-              testnet = (config.get("env") or {}).get("testnet")
-              if testnet is not None:
+              demo = (config.get("env") or {}).get("demo")
+              if demo is not None:
                   enabled = True
-                  for route in testnet.get("routes") or []:
+                  for route in demo.get("routes") or []:
                       if isinstance(route, dict) and route.get("custom_domain") and route.get("pattern"):
                           url = f"https://{route['pattern']}"
                           break
@@ -251,22 +220,22 @@ jobs:
           URL: ${{ steps.detect.outputs.url }}
         run: |
           if [ "$ENABLED" = "true" ]; then
-            echo "Testnet deploy enabled by wrangler.toml [env.testnet]${URL:+ → $URL}" >> "$GITHUB_STEP_SUMMARY"
+            echo "Demo deploy enabled by wrangler.toml [env.demo]${URL:+ → $URL}" >> "$GITHUB_STEP_SUMMARY"
           else
-            echo "No [env.testnet] in wrangler.toml — skipping the testnet leg." >> "$GITHUB_STEP_SUMMARY"
+            echo "No [env.demo] in wrangler.toml — skipping the demo leg." >> "$GITHUB_STEP_SUMMARY"
           fi
 
   # Artifact and bundle names are suffixed because artifact names are
   # immutable per run — colliding with the mainnet build would make one
   # overwrite the other.
-  build-testnet:
+  build-demo:
     runs-on: ubuntu-latest
-    needs: detect-testnet
-    if: github.event.action == 'prereleased' && needs.detect-testnet.outputs.enabled == 'true'
+    needs: detect-demo
+    if: github.event.action == 'prereleased' && needs.detect-demo.outputs.enabled == 'true'
     # As on `build`: a protection rule on the environment gates the build too.
-    environment: testnet
+    environment: demo
     permissions:
-      # gh release upload of the built testnet bundle
+      # gh release upload of the built demo bundle
       contents: write
     steps:
       - name: '📥 Checkout Code from Release Tag'
@@ -274,26 +243,26 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: '🔨 Build App (testnet)'
+      - name: '🔨 Build App (demo, testnet mode)'
         id: build
         uses: centrifuge/github-actions-lib/actions/build-app@main
         with:
-          app-name: ${{ inputs.app-name }}-testnet
-          bundle-name-prefix: ${{ format('{0}-testnet', inputs.bundle-name-prefix || inputs.app-name) }}
+          app-name: ${{ inputs.app-name }}-demo
+          bundle-name-prefix: ${{ format('{0}-demo', inputs.bundle-name-prefix || inputs.app-name) }}
           node-version: ${{ inputs.node-version }}
-          build-args: ${{ inputs.testnet-build-args }}
-          build-env: ${{ inputs.testnet-build-env }}
+          build-args: ${{ inputs.demo-build-args }}
+          build-env: ${{ inputs.demo-build-env }}
           # No pool-cache-base-url: there is no testnet pool-cache Worker;
-          # testnet builds fall back to the repo's prebuilt snapshot.
+          # these builds fall back to the repo's prebuilt snapshot.
           github-token: ${{ github.token }}
 
-  deploy-testnet:
+  deploy-demo:
     runs-on: ubuntu-latest
-    needs: [detect-testnet, build-testnet]
-    if: github.event.action == 'prereleased' && needs.detect-testnet.outputs.enabled == 'true'
+    needs: [detect-demo, build-demo]
+    if: github.event.action == 'prereleased' && needs.detect-demo.outputs.enabled == 'true'
     environment:
-      name: testnet
-      url: ${{ needs.detect-testnet.outputs.url || steps.deploy.outputs.deployment-url }}
+      name: demo
+      url: ${{ needs.detect-demo.outputs.url || steps.deploy.outputs.deployment-url }}
     permissions:
       contents: read
       # wrangler-action records a GitHub deployment for the environment URL
@@ -306,12 +275,12 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: '🚀 Deploy App to Testnet'
+      - name: '🚀 Deploy App to Demo'
         id: deploy
         uses: centrifuge/github-actions-lib/actions/deploy-app@main
         with:
-          environment: testnet
-          app-name: ${{ inputs.app-name }}-testnet
+          environment: demo
+          app-name: ${{ inputs.app-name }}-demo
           cloudflare-api-token: ${{ secrets.cloudflare-api-token }}
           cloudflare-account-id: ${{ inputs.cloudflare-account-id }}
           github-token: ${{ github.token }}

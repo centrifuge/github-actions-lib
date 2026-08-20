@@ -11,15 +11,15 @@ consumer.
 ```
 .github/workflows/
   app-ci-checks.yml             PR quality gate: format-n-lint, pnpm-audit (own check), TruffleHog, pinact
-  app-build-deploy-dev.yml      PR → preview deploy; push to main → demo deploy; optional Lighthouse
-  app-build-deploy-release.yml  prereleased → staging (+ optional public-demo / parallel testnet); released → promotion notice
+  app-build-deploy-dev.yml      PR → preview deploy; push to main → nightly deploy; optional Lighthouse
+  app-build-deploy-release.yml  prereleased → staging (+ optional demo); released → promotion notice
   app-promote-production.yml    allowlist-gated production promotion (workflow_dispatch caller)
-  app-rollback.yml              allowlist-gated rollback (prod: version traffic shift; staging/testnet: bundle redeploy)
+  app-rollback.yml              allowlist-gated rollback (prod: version traffic shift; staging/demo: bundle redeploy)
   lib-ci.yml                    this repo's own CI (actionlint, pinact, yamllint)
 actions/
   setup-app/                    Node + pnpm bootstrap (pnpm version from package.json "packageManager")
   build-app/                    build + artifact upload (+ release bundle upload on prerelease)
-  deploy-app/                   wrangler deploy per environment (dev/demo/public-demo/staging/testnet/prod)
+  deploy-app/                   wrangler deploy per environment (preview/nightly/demo/staging/prod)
 lighthouserc.json               shared LHCI config used by app-build-deploy-dev's performance job
 ```
 
@@ -120,23 +120,22 @@ Every input/secret/output is documented inline in each workflow's
   Output: `deployment-url`.
 - **`app-build-deploy-release.yml`** — same core contract plus
   `bundle-name-prefix` (release zip name, defaults to `app-name`),
-  `pool-cache-base-url`, `deploy-public-demo`, `production-url`,
-  `production-worker-name`, plus `testnet-build-args` (default
-  `--mode testnet`) and `testnet-build-env`. **The testnet leg has no opt-in
-  input**: prereleases run a second, testnet-mode build and
-  `wrangler deploy --env testnet` it whenever the caller's `wrangler.toml`
-  declares an `[env.testnet]` section, taking the deployment URL from that
-  section's custom-domain route. It uploads its own artifact
-  (`<app-name>-testnet-build-<sha>`) and release bundle
-  (`<bundle-prefix>-testnet-bundle<tag>.zip`). Secrets:
+  `pool-cache-base-url`, `production-url`,
+  `production-worker-name`, plus `demo-build-args` (default `--mode testnet`)
+  and `demo-build-env`. **The demo leg has no opt-in input**: prereleases run
+  a second, testnet-mode build and `wrangler deploy --env demo` it whenever
+  the caller's `wrangler.toml` declares an `[env.demo]` section, taking the
+  deployment URL from that section's custom-domain route. It uploads its own
+  artifact (`<app-name>-demo-build-<sha>`) and release bundle
+  (`<bundle-prefix>-demo-bundle<tag>.zip`). Secrets:
   `cloudflare-api-token`, `slack-webhook-url`. Outputs: `staging-url`,
-  `testnet-url`. **A tag must be `prereleased` before it can be
+  `demo-url`. **A tag must be `prereleased` before it can be
   `released`.** `prereleased` builds once and deploys to staging;
   `released` does **not** deploy — it posts a Slack notification with the
   gated promotion instructions (`gh workflow run promote-production.yml
   ...`). The notification links to the caller repo's
   `promote-production.yml`, so name your promote caller exactly that.
-  The testnet leg is prerelease-only and never touches production.
+  The demo leg is prerelease-only and never touches production.
   Release bundles are immutable: rebuilding a tag whose bundle already exists
   fails; cut a new prerelease, or delete the asset from the release page to
   rebuild the same tag.
@@ -159,10 +158,9 @@ Every input/secret/output is documented inline in each workflow's
   `slack-webhook-url` for failed-attempt alerts). `environment: prod`
   (default) shifts traffic to the version tagged with `tag`;
   `environment: staging` re-uploads the release bundle behind the staging
-  preview alias; `environment: testnet` redeploys the testnet release
-  bundle to the standalone testnet Worker. Gated by the same
-  `authorized-deployers` allowlist as promotion — for every environment,
-  testnet included — declared optional for parse-compat, but empty **fails
+  preview alias; `environment: demo` redeploys the demo release bundle to
+  the standalone demo Worker. Gated by the same `authorized-deployers`
+  allowlist as promotion — for every environment, demo included — declared optional for parse-compat, but empty **fails
   closed at runtime**; callers must pass `vars.AUTHORIZED_DEPLOYERS`.
 
 ## Adding an environment
@@ -170,8 +168,8 @@ Every input/secret/output is documented inline in each workflow's
 Derive the deployment target from config the app repo already owns rather
 than adding a caller input for it: an input duplicates what `wrangler.toml`
 already states, and forces every consumer into a workflow PR to adopt the
-feature. `detect-testnet` is the worked example — declaring `[env.testnet]`
-is the opt-in, and adopting it needs no caller-workflow edit.
+feature. `detect-demo` is the worked example — declaring `[env.demo]` is the
+opt-in, and adopting it needs no caller-workflow edit.
 
 Parse that config with `tomllib` in a `python3` step, not `grep`.
 `actions/deploy-app` still greps for the prod Worker name; comments, key
