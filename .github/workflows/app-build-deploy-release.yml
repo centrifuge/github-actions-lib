@@ -317,12 +317,14 @@ jobs:
           RELEASE_URL="${SERVER_URL}/${REPOSITORY}/releases/tag/${TAG}"
           PROMOTE_URL="${SERVER_URL}/${REPOSITORY}/actions/workflows/promote-production.yml"
           DASH_URL="https://dash.cloudflare.com/${ACCOUNT_ID}/workers/services/view/${WORKER}/production/deployments"
-          GH_COMMAND="gh workflow run promote-production.yml --repo ${REPOSITORY} --ref main -f tag=${TAG}"
+          # No -f tag=...: the promote workflow takes no inputs, it resolves
+          # GitHub's latest release itself. Passing one is rejected by gh.
+          GH_COMMAND="gh workflow run promote-production.yml --repo ${REPOSITORY} --ref main"
 
           # printf per line keeps the message free of YAML/heredoc indentation.
           TEXT=$(printf '%s\n' \
             "🚀 *${APP_NAME}* — release *${TAG}* is staged, not receiving production traffic yet." \
-            "Staging already serves this version. Promotion is gated: a deployer listed in AUTHORIZED_DEPLOYERS must dispatch the promote workflow from main." \
+            "Staging already serves this version. Promotion is gated: a deployer listed in AUTHORIZED_DEPLOYERS must dispatch the promote workflow from main. It promotes whatever GitHub reports as the latest release, so release *${TAG}* before promoting." \
             "" \
             "• Release: <${RELEASE_URL}|${TAG}> — by ${ACTOR}" \
             "" \
