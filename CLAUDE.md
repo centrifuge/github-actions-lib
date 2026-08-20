@@ -67,6 +67,10 @@ publishes production app code**. Treat every change as a supply-chain change.
   allowlist. Do not re-add an automatic prod deploy, and do not weaken the
   fail-closed allowlist checks, without an explicit decision recorded in the
   PR.
+- **`app-promote-production.yml` takes no `tag` input.** It resolves GitHub's
+  latest release (excludes drafts and prereleases) and promotes that, so
+  there is nowhere to type an arbitrary tag. Promoting a specific non-latest
+  tag is `app-rollback.yml`'s job. Do not re-add a `tag` input here.
 - **`app-rollback.yml`'s prod path retains `versions deploy` on purpose** —
   it is the emergency traffic-shift path — but it is gated by the same
   `AUTHORIZED_DEPLOYERS` allowlist (fail-closed). Its `authorized-deployers`
@@ -75,6 +79,25 @@ publishes production app code**. Treat every change as a supply-chain change.
 - **Release bundles are immutable.** `build-app` fails rather than overwrite an
   existing release asset; the deploy/rollback flows depend on that bundle not
   changing under a fixed tag.
+- **The `demo` leg is a second, independent pipeline on the same prerelease**:
+  its own testnet-mode build (`--mode testnet` — the chain, not the
+  environment name), artifact and release bundle, and a direct
+  `wrangler deploy --env demo` to a standalone Worker — no staging alias or
+  version promotion, and it never touches the production Worker. Keep the
+  artifact/bundle names suffixed or the two builds overwrite each other.
+- **It activates from the caller's `wrangler.toml`, not an input.**
+  `detect-demo` enables the leg when `[env.demo]` exists and takes the
+  deployment URL from its `custom_domain` route. Do not re-add a
+  `deploy-demo`/`demo-url` input; for future environments follow the same
+  pattern (README, "Adding an environment") and parse with `tomllib`, never
+  `grep`.
+- **Environment vocabulary** (one name per tier, used for the pipeline input,
+  the wrangler env and the GitHub environment): `preview` (PR build),
+  `nightly` (tracks `main`), `demo` (release tag on testnet data), `staging`
+  (release tag on mainnet, a version alias on the prod Worker), `prod`.
+  `preview` and `nightly` share one Worker; `staging` and `prod` share
+  another. Only two names differ from their wrangler env: `staging`→`prod`
+  and `preview`→`nightly`.
 
 ## Layout
 
@@ -82,10 +105,10 @@ publishes production app code**. Treat every change as a supply-chain change.
 .github/workflows/
   lib-ci.yml                    # this repo's own CI: actionlint + pinact + yamllint
   app-ci-checks.yml             # workflow_call: format/lint/audit/secrets-scan/pinact
-  app-build-deploy-dev.yml      # workflow_call: PR preview + demo (+ Lighthouse)
-  app-build-deploy-release.yml  # workflow_call: prerelease→staging, release→notify
+  app-build-deploy-dev.yml      # workflow_call: PR preview + nightly (+ Lighthouse)
+  app-build-deploy-release.yml  # workflow_call: prerelease→staging (+opt. demo), release→notify
   app-promote-production.yml    # workflow_call: allowlist-gated prod traffic shift
-  app-rollback.yml              # workflow_call: gated prod traffic-shift / staging re-upload
+  app-rollback.yml              # workflow_call: gated prod traffic-shift / staging|demo re-upload
 actions/
   setup-app/                    # pnpm (from packageManager) + node + cache
   build-app/                    # build + artifact upload + release bundle

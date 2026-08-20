@@ -1,8 +1,13 @@
 name: App Promote Production
 
 # Reusable gated production promotion. An app's thin `promote-production.yml`
-# caller (workflow_dispatch, tag input) calls this after a `released` event
+# caller (workflow_dispatch, no inputs) calls this after a `released` event
 # staged a version and posted the Slack notification.
+#
+# There is no tag input: promotion targets GitHub's latest release (excludes
+# drafts and prereleases), which is the tag the `released` event just staged.
+# A newer prereleased tag does not become promotable until it is released.
+# Promoting some other tag is app-rollback.yml's job, not this one.
 #
 # The gate is GitHub-side, mirroring centrifuge/backend's
 # activate-production.yml: the dispatching actor must appear in the caller
@@ -19,9 +24,9 @@ name: App Promote Production
 # promote, and repo admins can edit the allowlist variable. The hard boundary
 # — who holds repo write/admin access and the Cloudflare token — is unchanged.
 #
-# A tag can only be promoted if its commit is on the caller's main branch
-# (hotfix releases cut from other branches are refused; the gated rollback
-# path is the escape hatch if that is ever genuinely needed).
+# The resolved tag can only be promoted if its commit is on the caller's main
+# branch (hotfix releases cut from other branches are refused; the gated
+# rollback path is the escape hatch if that is ever genuinely needed).
 
 # Pipeline-only pin, not caller-overridable — see README "Pinned
 # pipeline-only tool versions". Keep in sync with actions/deploy-app's
@@ -33,10 +38,6 @@ env:
 on:
   workflow_call:
     inputs:
-      tag:
-        description: 'Release tag to promote (must have been prereleased — that is when its version was staged)'
-        required: true
-        type: string
       app-name:
         description: 'App name (used in Slack messages and log output)'
         required: true
@@ -67,8 +68,33 @@ on:
         required: true
 
 jobs:
+  resolve-tag:
+    name: Resolve latest release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      tag: ${{ steps.latest.outputs.tag }}
+    steps:
+      - name: '🔎 Look up the latest GitHub release'
+        id: latest
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          TAG=$(gh api "repos/${REPOSITORY}/releases/latest" --jq '.tag_name')
+          if [ -z "$TAG" ] || [ "$TAG" = "null" ]; then
+            echo "::error::No release found. GitHub's 'latest release' excludes drafts and prereleases — release (un-prerelease) a tag first."
+            exit 1
+          fi
+          echo "Latest release: ${TAG}"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+
   authorize:
     name: Authorize deployer
+    needs: resolve-tag
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -108,7 +134,7 @@ jobs:
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.slack-webhook-url }}
           APP_NAME: ${{ inputs.app-name }}
-          TAG: ${{ inputs.tag }}
+          TAG: ${{ needs.resolve-tag.outputs.tag }}
           ACTOR: ${{ github.actor }}
         run: |
           if [ "${{ steps.check-ref.outcome }}" = "failure" ]; then
@@ -123,8 +149,8 @@ jobs:
           curl -sS -o /dev/null -X POST -H 'Content-type: application/json' --data "$PAYLOAD" "$SLACK_WEBHOOK_URL" || true
 
   promote:
-    name: 'Promote ${{ inputs.app-name }} ${{ inputs.tag }} to Production'
-    needs: authorize
+    name: 'Promote ${{ inputs.app-name }} ${{ needs.resolve-tag.outputs.tag }} to Production'
+    needs: [resolve-tag, authorize]
     runs-on: ubuntu-latest
     environment:
       name: production
@@ -137,7 +163,7 @@ jobs:
       - name: '📥 Checkout Code from Release Tag'
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
-          ref: ${{ inputs.tag }}
+          ref: ${{ needs.resolve-tag.outputs.tag }}
           # Full history: the on-main ancestry check below needs origin/main
           fetch-depth: 0
           persist-credentials: false
@@ -146,7 +172,7 @@ jobs:
         id: release
         shell: bash
         env:
-          TAG: ${{ inputs.tag }}
+          TAG: ${{ needs.resolve-tag.outputs.tag }}
         run: |
           set -euo pipefail
           RELEASE_SHA="$(git rev-parse --verify "refs/tags/${TAG}^{commit}")"
@@ -174,7 +200,7 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ inputs.cloudflare-account-id }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.cloudflare-api-token }}
           WORKER_NAME: ${{ inputs.production-worker-name }}
-          TAG: ${{ inputs.tag }}
+          TAG: ${{ needs.resolve-tag.outputs.tag }}
         run: |
           VERSION_ID=$(wrangler versions list --name "$WORKER_NAME" --env prod --json | jq -r ".[] | select(.annotations.\"workers/tag\" == \"$TAG\") | .id" | head -1)
           if [ -z "$VERSION_ID" ] || [ "$VERSION_ID" = "null" ]; then
@@ -201,7 +227,7 @@ jobs:
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.slack-webhook-url }}
           APP_NAME: ${{ inputs.app-name }}
-          TAG: ${{ inputs.tag }}
+          TAG: ${{ needs.resolve-tag.outputs.tag }}
           PRODUCTION_URL: ${{ inputs.production-url }}
           ACTOR: ${{ github.actor }}
           SERVER_URL: ${{ github.server_url }}
@@ -228,7 +254,7 @@ jobs:
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.slack-webhook-url }}
           APP_NAME: ${{ inputs.app-name }}
-          TAG: ${{ inputs.tag }}
+          TAG: ${{ needs.resolve-tag.outputs.tag }}
         run: |
           if [ "${{ steps.release.outcome }}" = "failure" ]; then
             REASON="release tag ${TAG} did not resolve to a commit on main"
