@@ -12,10 +12,16 @@ name: App Promote Production
 # The gate is GitHub-side, mirroring centrifuge/backend's
 # activate-production.yml: the dispatching actor must appear in the caller
 # repo's AUTHORIZED_DEPLOYERS variable (passed via the authorized-deployers
-# input; empty fails closed), and the workflow must be dispatched from main —
-# the workflow YAML on main is the trust root, never promote from a feature
-# branch. Failed attempts are announced to Slack; successful promotions are
-# logged as workflow runs tied to a GitHub identity.
+# input; empty fails closed), and the workflow must be dispatched from main
+# or from the tag that is currently GitHub's latest release — the only two
+# refs whose workflow YAML is trusted. Dispatching "Run workflow" from the
+# tag being released is most people's first instinct during a release, and
+# it's safe to allow: this always resolves and promotes GitHub's latest
+# release (see resolve-tag below) regardless of which of those two refs was
+# used to dispatch — never the ref itself. Any other ref (a feature branch,
+# an older tag) is refused; that's app-rollback.yml's job. Failed attempts
+# are announced to Slack; successful promotions are logged as workflow runs
+# tied to a GitHub identity.
 #
 # This replaces the previous out-of-band instruction ("a Cloudflare admin
 # runs wrangler by hand") with the same capability behind a GitHub-native
@@ -99,14 +105,17 @@ jobs:
     permissions:
       contents: read
     steps:
-      - name: Verify dispatched from main
+      - name: Verify dispatched from main or the latest release tag
         id: check-ref
         shell: bash
+        env:
+          RESOLVED_TAG: ${{ needs.resolve-tag.outputs.tag }}
         run: |
-          if [ "$GITHUB_REF" != "refs/heads/main" ]; then
-            echo "::error::Promotion must be dispatched using the workflow from main (got ref: $GITHUB_REF). The workflow YAML on main is the trust root."
-            exit 1
+          if [ "$GITHUB_REF" = "refs/heads/main" ] || [ "$GITHUB_REF" = "refs/tags/${RESOLVED_TAG}" ]; then
+            exit 0
           fi
+          echo "::error::Promotion must be dispatched using the workflow from main or from the latest release tag (${RESOLVED_TAG}); got ref: $GITHUB_REF. This always promotes ${RESOLVED_TAG} regardless of the ref used to dispatch — to deploy a different tag, use rollback.yml."
+          exit 1
 
       - name: Check deployer authorization
         id: check-perm
@@ -138,7 +147,7 @@ jobs:
           ACTOR: ${{ github.actor }}
         run: |
           if [ "${{ steps.check-ref.outcome }}" = "failure" ]; then
-            REASON="not dispatched from main"
+            REASON="not dispatched from main or the latest release tag"
           elif [ "${{ steps.check-perm.outcome }}" = "failure" ]; then
             REASON="${ACTOR} is not authorized"
           else
