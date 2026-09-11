@@ -58,8 +58,12 @@ publishes production app code**. Treat every change as a supply-chain change.
   allowlist-gated `workflow_dispatch` flow mirroring centrifuge/backend's
   activate-production model: the dispatching actor must appear in the caller
   repo's `AUTHORIZED_DEPLOYERS` variable (empty fails closed), the workflow
-  must be dispatched from `main` (workflow YAML on main is the trust root),
-  and failed attempts alert to Slack. GitHub environment required-reviewers
+  must be dispatched from `main` **or from the tag that is currently GitHub's
+  latest release** (workflow YAML on either of those two refs is trusted —
+  dispatching from the tag being released is the natural first move during a
+  release, and it's safe: the ref never selects what gets promoted, only
+  whether the dispatching copy of the YAML is trusted), any other ref is
+  refused, and failed attempts alert to Slack. GitHub environment required-reviewers
   is unavailable on private non-Enterprise repos and the Cloudflare token
   cannot be scoped to forbid deploys, so this GitHub-identity gate is the
   available control. It is a **process control, not a hard control**: token
