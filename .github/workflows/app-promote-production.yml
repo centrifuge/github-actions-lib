@@ -230,6 +230,12 @@ jobs:
           gitHubToken: ${{ github.token }}
           command: ${{ steps.resolve.outputs.cmd }}
           wranglerVersion: ${{ env.WRANGLER_VERSION }}
+          # This job never runs setup-app/pnpm — it only shifts traffic on an
+          # already-built version, no app build needed. wrangler-action's own
+          # install step otherwise auto-detects pnpm from the checked-out
+          # repo's lockfile and fails with "Unable to locate executable file:
+          # pnpm" since nothing set it up on this runner.
+          packageManager: npm
 
       - name: '📣 Announce promotion'
         shell: bash
