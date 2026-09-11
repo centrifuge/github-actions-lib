@@ -212,4 +212,9 @@ jobs:
           gitHubToken: ${{ github.token }}
           command: ${{ steps.wrangler-command.outputs.cmd }}
           wranglerVersion: ${{ env.WRANGLER_VERSION }}
+          # This job never runs setup-app/pnpm — see app-promote-production.yml's
+          # identical comment. wrangler-action would otherwise auto-detect pnpm
+          # from the checked-out repo's lockfile and fail with "Unable to
+          # locate executable file: pnpm".
+          packageManager: npm
         id: deploy
