@@ -83,6 +83,8 @@ jobs:
   format-n-lint:
     permissions:
       contents: read
+      # Used only when the app's .npmrc routes a scope to GitHub Packages.
+      packages: read
     runs-on: ubuntu-latest
     steps:
       - name: '📥 Checkout Code'
@@ -91,12 +93,16 @@ jobs:
           persist-credentials: false
 
       - name: '🧰 Setup Toolchain'
+        id: setup
         uses: centrifuge/github-actions-lib/actions/setup-app@main
         with:
           node-version: ${{ inputs.node-version }}
 
       - name: Install dependencies
         shell: sh
+        env:
+          # Empty unless the app routes a scope to GitHub Packages (setup-app).
+          NODE_AUTH_TOKEN: ${{ steps.setup.outputs.github-packages == 'true' && github.token || '' }}
         run: pnpm install --frozen-lockfile
 
       - name: Check code formatting
@@ -127,6 +133,8 @@ jobs:
   pnpm-audit:
     permissions:
       contents: read
+      # Used only when the app's .npmrc routes a scope to GitHub Packages.
+      packages: read
     runs-on: ubuntu-latest
     steps:
       - name: '📥 Checkout Code'
@@ -135,6 +143,7 @@ jobs:
           persist-credentials: false
 
       - name: '🧰 Setup Toolchain'
+        id: setup
         # Pipeline-only pin, not caller-overridable — see README "Pinned
         # pipeline-only tool versions". audit-command's pnpm@11 needs Node
         # >=22.13; the app's own node-version is irrelevant to audit results.
@@ -144,6 +153,9 @@ jobs:
 
       - name: Install dependencies
         shell: sh
+        env:
+          # Empty unless the app routes a scope to GitHub Packages (setup-app).
+          NODE_AUTH_TOKEN: ${{ steps.setup.outputs.github-packages == 'true' && github.token || '' }}
         run: pnpm install --frozen-lockfile
 
       - name: Audit dependencies with pnpm

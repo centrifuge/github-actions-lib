@@ -115,6 +115,8 @@ jobs:
     permissions:
       # gh release upload of the built bundle
       contents: write
+      # Used only when the app's .npmrc routes a scope to GitHub Packages.
+      packages: read
     steps:
       - name: '📥 Checkout Code from Release Tag'
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
@@ -237,6 +239,8 @@ jobs:
     permissions:
       # gh release upload of the built demo bundle
       contents: write
+      # Used only when the app's .npmrc routes a scope to GitHub Packages.
+      packages: read
     steps:
       - name: '📥 Checkout Code from Release Tag'
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
@@ -323,10 +327,8 @@ jobs:
 
           # printf per line keeps the message free of YAML/heredoc indentation.
           TEXT=$(printf '%s\n' \
-            "🚀 *${APP_NAME}* — release *${TAG}* is staged, not receiving production traffic yet." \
-            "Staging already serves this version. Promotion is gated: a deployer listed in AUTHORIZED_DEPLOYERS must dispatch the promote workflow from main. It promotes whatever GitHub reports as the latest release, so release *${TAG}* before promoting." \
-            "" \
-            "• Release: <${RELEASE_URL}|${TAG}> — by ${ACTOR}" \
+            "🚀 *${APP_NAME}*: release *${TAG}* deployed to staging." \
+            "• Release: <${RELEASE_URL}|${TAG}> by ${ACTOR}" \
             "" \
             "*To promote:*" \
             '```' \
