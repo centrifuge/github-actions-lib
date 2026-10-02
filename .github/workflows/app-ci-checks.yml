@@ -164,17 +164,33 @@ jobs:
           AUDIT_COMMAND: ${{ inputs.audit-command }}
         # npm's audit endpoint has intermittently returned its retired-endpoint
         # 410 response even against clients that use the working bulk-advisory
-        # call (observed in production, not hypothetical) — retry a few times
-        # before failing the check on what may be a transient registry error.
+        # call (observed in production, not hypothetical), so registry and
+        # network errors are retried. Only those: an audit that completed prints
+        # its summary line, and its findings fail the check on the first run.
         run: |
+          log="$RUNNER_TEMP/audit.log"
+          findings='[0-9]+ vulnerabilit(y|ies) (found|\()|[0-9]+ (low|moderate|high|critical) severity vulnerabilit'
+          registry_errors='ERR_PNPM_AUDIT_(BAD_RESPONSE|ENDPOINT_NOT_EXISTS)|ERR_PNPM_META_FETCH_FAIL|ERR_PNPM_FETCH_(429|5[0-9][0-9])|E(TIMEDOUT|CONNRESET|CONNREFUSED|AI_AGAIN|NOTFOUND)|code E(410|429|5[0-9][0-9])'
           n=0
-          until eval "$AUDIT_COMMAND"; do
+          while :; do
             n=$((n + 1))
-            if [ "$n" -ge 3 ]; then
-              echo "::error::Audit failed after $n attempts (possibly a transient registry error — see pnpm/pnpm#11265)"
-              exit 1
+            rc=0
+            eval "$AUDIT_COMMAND" >"$log" 2>&1 || rc=$?
+            cat "$log"
+            [ "$rc" -eq 0 ] && exit 0
+            if grep -Eq "$findings" "$log"; then
+              echo "::error::Dependency audit found vulnerabilities at or above the audit level (see the report above)"
+              exit "$rc"
             fi
-            echo "::warning::Audit attempt $n failed; retrying in 5s"
+            if ! grep -Eq "$registry_errors" "$log"; then
+              echo "::error::Audit command failed (exit $rc) without a registry error; not retrying"
+              exit "$rc"
+            fi
+            if [ "$n" -ge 3 ]; then
+              echo "::error::Audit registry request still failing after $n attempts (see pnpm/pnpm#11265)"
+              exit "$rc"
+            fi
+            echo "::warning::Audit registry request failed (attempt $n); retrying in 5s"
             sleep 5
           done
 
