@@ -59,6 +59,7 @@ jobs:
     permissions:
       contents: read
       actions: read
+      packages: read
     uses: centrifuge/github-actions-lib/.github/workflows/app-ci-checks.yml@main
     with:
       node-version: '24'
@@ -78,6 +79,7 @@ jobs:
     permissions:
       contents: write        # ceiling: gh release upload in the build job
       deployments: write
+      packages: read
     uses: centrifuge/github-actions-lib/.github/workflows/app-build-deploy-release.yml@main
     with:
       app-name: my-app
@@ -94,9 +96,9 @@ workflow (called jobs can only downgrade):
 
 | Workflow | Caller job permissions |
 |---|---|
-| `app-ci-checks.yml` | `contents: read`, `actions: read` |
-| `app-build-deploy-dev.yml` | `contents: read`, `deployments: write`, `id-token: write` |
-| `app-build-deploy-release.yml` | `contents: write`, `deployments: write` |
+| `app-ci-checks.yml` | `contents: read`, `actions: read`, `packages: read` |
+| `app-build-deploy-dev.yml` | `contents: read`, `deployments: write`, `id-token: write`, `packages: read` |
+| `app-build-deploy-release.yml` | `contents: write`, `deployments: write`, `packages: read` |
 | `app-promote-production.yml` | `contents: read`, `deployments: write` |
 | `app-rollback.yml` | `contents: read`, `deployments: write` |
 
@@ -181,6 +183,13 @@ targets, not for behavioral flags.
 
 ## Rules for consumers
 
+- **GitHub Packages is opt-in from the app's `.npmrc`.** `setup-app` writes the
+  auth line, and the install step gets `github.token`, only when the app's
+  `.npmrc` routes a scope to `https://npm.pkg.github.com` (for example
+  `@centrifuge:registry=https://npm.pkg.github.com`). Every installing job
+  requests `packages: read`, so callers must grant it even if they never opt
+  in. For a private package, also grant the app repo read access once in the
+  package settings under "Manage Actions access", or the install gets a 403.
 - **Concurrency groups live in the caller** (they need caller context like
   the PR number). Called workflows define none.
 - **Artifacts are scoped to the workflow run.** `build-app` uploads

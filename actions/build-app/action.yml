@@ -45,6 +45,7 @@ runs:
   using: 'composite'
   steps:
     - name: '🧰 Setup Toolchain'
+      id: setup
       uses: centrifuge/github-actions-lib/actions/setup-app@main
       with:
         node-version: ${{ inputs.node-version }}
@@ -70,6 +71,9 @@ runs:
 
     - name: '📥 Install Dependencies'
       shell: sh
+      env:
+        # Empty unless the app routes a scope to GitHub Packages (setup-app).
+        NODE_AUTH_TOKEN: ${{ steps.setup.outputs.github-packages == 'true' && github.token || '' }}
       run: pnpm install --frozen-lockfile
 
     - name: '🎨 Generate Chakra UI Types'

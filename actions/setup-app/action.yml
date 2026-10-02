@@ -13,6 +13,13 @@ inputs:
     required: false
     default: 'pnpm'
 
+outputs:
+  github-packages:
+    description: >-
+      'true' when the app's .npmrc routes a scope to npm.pkg.github.com. The
+      caller's install step must then set NODE_AUTH_TOKEN to github.token.
+    value: ${{ steps.github-packages.outputs.enabled }}
+
 runs:
   using: 'composite'
   steps:
@@ -25,3 +32,19 @@ runs:
       with:
         node-version: ${{ inputs.node-version }}
         cache: ${{ inputs.cache }}
+
+    # The app opts in by routing a scope in its own .npmrc; nothing changes for
+    # apps that do not. Only the placeholder is written, so the token lives in
+    # the install step's environment and never on disk.
+    - name: '🔑 GitHub Packages Auth (if the app uses it)'
+      id: github-packages
+      shell: sh
+      run: |
+        if [ -f .npmrc ] && grep -Eq '^[[:space:]]*(@[^:]+:)?registry[[:space:]]*=[[:space:]]*https://npm\.pkg\.github\.com(/|[[:space:]]|$)' .npmrc; then
+          # Single quotes on purpose: npm expands the variable when it reads the file.
+          # shellcheck disable=SC2016
+          echo '//npm.pkg.github.com/:_authToken=${NODE_AUTH_TOKEN}' >> ~/.npmrc
+          echo "enabled=true" >> "$GITHUB_OUTPUT"
+        else
+          echo "enabled=false" >> "$GITHUB_OUTPUT"
+        fi
