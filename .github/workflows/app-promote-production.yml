@@ -31,8 +31,12 @@ name: App Promote Production
 # — who holds repo write/admin access and the Cloudflare token — is unchanged.
 #
 # The resolved tag can only be promoted if its commit is on the caller's main
-# branch (hotfix releases cut from other branches are refused; the gated
-# rollback path is the escape hatch if that is ever genuinely needed).
+# branch, or if it is a hotfix cut from an older release whose changes have
+# all been merged back to main. Squash merges and cherry-picks give main new
+# commits, so that is checked by content, not ancestry: the release's delta
+# from where it left main must reverse-apply cleanly to main's tree. A hotfix
+# not merged back is refused; the gated rollback path is the escape hatch if
+# that is ever genuinely needed.
 
 # Pipeline-only pin, not caller-overridable — see README "Pinned
 # pipeline-only tool versions". Keep in sync with actions/deploy-app's
@@ -177,7 +181,7 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: '🔎 Verify tag is a release on main'
+      - name: '🔎 Verify release is on main or merged back to it'
         id: release
         shell: bash
         env:
@@ -185,9 +189,24 @@ jobs:
         run: |
           set -euo pipefail
           RELEASE_SHA="$(git rev-parse --verify "refs/tags/${TAG}^{commit}")"
-          if ! git merge-base --is-ancestor "$RELEASE_SHA" origin/main; then
-            echo "::error::Release ${TAG} (${RELEASE_SHA}) is not on main."
-            exit 1
+          if git merge-base --is-ancestor "$RELEASE_SHA" origin/main; then
+            echo "Release ${TAG} (${RELEASE_SHA}) is on main."
+          else
+            # Hotfix cut from an older release: everything it changed since
+            # it left main must already be on main (see the header).
+            if ! BASE="$(git merge-base "$RELEASE_SHA" origin/main)"; then
+              echo "::error::Release ${TAG} (${RELEASE_SHA}) shares no history with main."
+              exit 1
+            fi
+            PATCH="${RUNNER_TEMP}/release-delta.patch"
+            MAIN_INDEX="${RUNNER_TEMP}/main.index"
+            git diff --binary --no-renames "$BASE" "$RELEASE_SHA" > "$PATCH"
+            GIT_INDEX_FILE="$MAIN_INDEX" git read-tree origin/main
+            if ! GIT_INDEX_FILE="$MAIN_INDEX" git apply --cached --check --reverse --allow-empty "$PATCH"; then
+              echo "::error::Release ${TAG} (${RELEASE_SHA}) is a hotfix off main (branched at ${BASE}) and the files above are not merged back to main yet. Merge the hotfix into main, then dispatch again. If main has since rewritten those lines, use rollback.yml."
+              exit 1
+            fi
+            echo "Release ${TAG} (${RELEASE_SHA}) is a hotfix off main (branched at ${BASE}); all of its changes are on main."
           fi
           echo "release_sha=${RELEASE_SHA}" >> "$GITHUB_OUTPUT"
 
@@ -272,7 +291,7 @@ jobs:
           TAG: ${{ needs.resolve-tag.outputs.tag }}
         run: |
           if [ "${{ steps.release.outcome }}" = "failure" ]; then
-            REASON="release tag ${TAG} did not resolve to a commit on main"
+            REASON="release ${TAG} is not on main and its hotfix changes are not merged back to main"
           elif [ "${{ steps.resolve.outcome }}" = "failure" ]; then
             REASON="no staged Worker version is tagged ${TAG} (was it prereleased?)"
           elif [ "${{ steps.deploy.outcome }}" = "failure" ]; then

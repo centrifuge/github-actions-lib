@@ -151,7 +151,9 @@ Every input/secret/output is documented inline in each workflow's
   promoted through this workflow; that's what the gated rollback path is
   for. Gated: the dispatching actor must be in `authorized-deployers` (pass
   `vars.AUTHORIZED_DEPLOYERS`; empty fails closed), the dispatch must run
-  from `main`, and the resolved tag's commit must be on `main`. Failed
+  from `main` or the latest release tag, and the resolved tag's commit must
+  be on `main` or be a hotfix whose changes are already merged back to
+  `main` (squash merges and cherry-picks count; checked by content). Failed
   attempts and successful promotions are
   announced to Slack. Mirrors centrifuge/backend's activate-production
   model; a process control, not a hard control (see the workflow header).

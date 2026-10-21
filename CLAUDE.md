@@ -75,6 +75,13 @@ publishes production app code**. Treat every change as a supply-chain change.
   latest release (excludes drafts and prereleases) and promotes that, so
   there is nowhere to type an arbitrary tag. Promoting a specific non-latest
   tag is `app-rollback.yml`'s job. Do not re-add a `tag` input here.
+- **Hotfix releases promote once merged back to main.** A latest release whose
+  commit is not on `main` (cut from an older tag) is promotable only when its
+  delta from where it left `main` reverse-applies cleanly to `main`, i.e. the
+  hotfix is already merged back. This is a content check because squash
+  merges and cherry-picks never make the tag an ancestor of `main`. Do not
+  return to an ancestry-only check (it refuses every squash-merged hotfix),
+  and do not accept a hotfix that is not merged back.
 - **`app-rollback.yml`'s prod path retains `versions deploy` on purpose** —
   it is the emergency traffic-shift path — but it is gated by the same
   `AUTHORIZED_DEPLOYERS` allowlist (fail-closed). Its `authorized-deployers`
