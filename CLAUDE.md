@@ -82,6 +82,13 @@ publishes production app code**. Treat every change as a supply-chain change.
   merges and cherry-picks never make the tag an ancestor of `main`. Do not
   return to an ancestry-only check (it refuses every squash-merged hotfix),
   and do not accept a hotfix that is not merged back.
+- **Backport hotfixes ship through `app-rollback.yml`, by decision.** When
+  `main` has a hotfix's fix only in another form (it shipped there first, or
+  `main` has rewritten those lines), the content check can never pass. Promote
+  stays strict and has no override input; its refusal and the `released`
+  notification give the `rollback.yml ... -f environment=prod` command
+  instead. The notification repeats promote's check only to pick that
+  command; keep the two in sync, and keep the copy non-blocking.
 - **`app-rollback.yml`'s prod path retains `versions deploy` on purpose** —
   it is the emergency traffic-shift path — but it is gated by the same
   `AUTHORIZED_DEPLOYERS` allowlist (fail-closed). Its `authorized-deployers`

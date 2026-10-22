@@ -35,8 +35,11 @@ name: App Promote Production
 # all been merged back to main. Squash merges and cherry-picks give main new
 # commits, so that is checked by content, not ancestry: the release's delta
 # from where it left main must reverse-apply cleanly to main's tree. A hotfix
-# not merged back is refused; the gated rollback path is the escape hatch if
-# that is ever genuinely needed.
+# not merged back is refused. So is a backport: a hotfix whose fix main
+# already has in another form (re-done on the old release, or rewritten on
+# main since) can never pass a line-for-line check. Backports ship through
+# app-rollback.yml's prod path, the same allowlist-gated traffic shift with an
+# explicit tag; the refusal and the release notification give the command.
 
 # Pipeline-only pin, not caller-overridable — see README "Pinned
 # pipeline-only tool versions". Keep in sync with actions/deploy-app's
@@ -186,6 +189,7 @@ jobs:
         shell: bash
         env:
           TAG: ${{ needs.resolve-tag.outputs.tag }}
+          REPOSITORY: ${{ github.repository }}
         run: |
           set -euo pipefail
           RELEASE_SHA="$(git rev-parse --verify "refs/tags/${TAG}^{commit}")"
@@ -203,7 +207,7 @@ jobs:
             git diff --binary --no-renames "$BASE" "$RELEASE_SHA" > "$PATCH"
             GIT_INDEX_FILE="$MAIN_INDEX" git read-tree origin/main
             if ! GIT_INDEX_FILE="$MAIN_INDEX" git apply --cached --check --reverse --allow-empty "$PATCH"; then
-              echo "::error::Release ${TAG} (${RELEASE_SHA}) is a hotfix off main (branched at ${BASE}) and the files above are not merged back to main yet. Merge the hotfix into main, then dispatch again. If main has since rewritten those lines, use rollback.yml."
+              echo "::error::Release ${TAG} (${RELEASE_SHA}) is a hotfix off main (branched at ${BASE}) and main does not have the changes in the files above line for line. If they are not on main yet, merge the hotfix into main, then dispatch again. If main already has them in another form (a backport, or main has moved on since), ship ${TAG} with: gh workflow run rollback.yml --repo ${REPOSITORY} --ref main -f tag=${TAG} -f environment=prod"
               exit 1
             fi
             echo "Release ${TAG} (${RELEASE_SHA}) is a hotfix off main (branched at ${BASE}); all of its changes are on main."
@@ -289,9 +293,10 @@ jobs:
           SLACK_WEBHOOK_URL: ${{ secrets.slack-webhook-url }}
           APP_NAME: ${{ inputs.app-name }}
           TAG: ${{ needs.resolve-tag.outputs.tag }}
+          REPOSITORY: ${{ github.repository }}
         run: |
           if [ "${{ steps.release.outcome }}" = "failure" ]; then
-            REASON="release ${TAG} is not on main and its hotfix changes are not merged back to main"
+            REASON="release ${TAG} is a hotfix and main does not have its changes line for line. If they are not on main yet, merge the hotfix into main and promote again. If main already has them in another form, ship it with \`gh workflow run rollback.yml --repo ${REPOSITORY} --ref main -f tag=${TAG} -f environment=prod\`"
           elif [ "${{ steps.resolve.outcome }}" = "failure" ]; then
             REASON="no staged Worker version is tagged ${TAG} (was it prereleased?)"
           elif [ "${{ steps.deploy.outcome }}" = "failure" ]; then

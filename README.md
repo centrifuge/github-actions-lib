@@ -135,8 +135,10 @@ Every input/secret/output is documented inline in each workflow's
   `released`.** `prereleased` builds once and deploys to staging;
   `released` does **not** deploy — it posts a Slack notification with the
   gated promotion instructions (`gh workflow run promote-production.yml
-  ...`). The notification links to the caller repo's
-  `promote-production.yml`, so name your promote caller exactly that.
+  ...`). For a hotfix that promote would refuse, it gives the
+  `rollback.yml` command instead (see [Hotfix releases](#hotfix-releases)).
+  The notification links to the caller repo's `promote-production.yml` and
+  `rollback.yml`, so name those callers exactly that.
   The demo leg is prerelease-only and never touches production.
   Release bundles are immutable: rebuilding a tag whose bundle already exists
   fails; cut a new prerelease, or delete the asset from the release page to
@@ -153,7 +155,10 @@ Every input/secret/output is documented inline in each workflow's
   `vars.AUTHORIZED_DEPLOYERS`; empty fails closed), the dispatch must run
   from `main` or the latest release tag, and the resolved tag's commit must
   be on `main` or be a hotfix whose changes are already merged back to
-  `main` (squash merges and cherry-picks count; checked by content). Failed
+  `main` (squash merges and cherry-picks count; checked by content). A
+  backport, whose fix `main` has only in another form, never passes and
+  ships through `app-rollback.yml` instead (see
+  [Hotfix releases](#hotfix-releases)). Failed
   attempts and successful promotions are
   announced to Slack. Mirrors centrifuge/backend's activate-production
   model; a process control, not a hard control (see the workflow header).
@@ -166,6 +171,40 @@ Every input/secret/output is documented inline in each workflow's
   the standalone demo Worker. Gated by the same `authorized-deployers`
   allowlist as promotion — for every environment, demo included — declared optional for parse-compat, but empty **fails
   closed at runtime**; callers must pass `vars.AUTHORIZED_DEPLOYERS`.
+
+## Hotfix releases
+
+A hotfix is a release cut from the tag running in production instead of
+from `main`, for a fix that can't wait for the next release from `main`.
+
+1. Branch from the production tag, for example
+   `git switch -c release/v1.4.1 v1.4.0 && git push -u origin release/v1.4.1`.
+2. Open the fix as a PR into that branch and merge it there. For a fix that
+   already exists on `main`, cherry-pick it (`git cherry-pick -x <sha>`) so
+   the commit names its source.
+3. Tag the branch head and publish the tag as a **prerelease**. As for any
+   release, that builds the bundle and stages the version on staging (and
+   demo). Check staging.
+4. **Release** the tag (un-prerelease it). The Slack notification compares
+   the tag with `main`, using the same check as promote, and gives one of
+   two commands:
+   - **Promote** (`promote-production.yml`) when `main` already has the
+     hotfix line for line, for example a small change also squash-merged to
+     `main` and untouched since.
+   - **Rollback** (`rollback.yml -f tag=<tag> -f environment=prod`)
+     otherwise. That is the path for a backport: `main` has the fix in
+     another form (it shipped there first, or `main` has rewritten those
+     lines since), which no line-for-line check can verify. If `main` does
+     not have the fix at all, merge it into `main` first and promote. If
+     production can't wait, ship it with rollback now and land it on `main`
+     before the next release, or that release reverts it.
+5. Rollback announces failed attempts to Slack but not a success, so post in
+   the release thread once production is verified.
+
+`rollback.yml`'s prod path is the same traffic shift as promote, to the
+version staged for the tag, behind the same `AUTHORIZED_DEPLOYERS`
+allowlist, dispatched from `main`. Promote has no override for backports on
+purpose: it only succeeds when `main` provably has the release.
 
 ## Adding an environment
 
@@ -212,8 +251,9 @@ targets, not for behavioral flags.
   promote or roll back until it's populated. This gates non-admin write
   users; repo admins can edit variables, so it's a process control layered on
   top of (not a replacement for) branch protection, CODEOWNERS on
-  `.github/workflows/**`, and restricted repo access. Name your promote
-  caller `promote-production.yml` — the release notification links to it.
+  `.github/workflows/**`, and restricted repo access. Name your callers
+  `promote-production.yml` and `rollback.yml`: the release notification and
+  the promote refusal give commands for both.
 
 ### Pinned pipeline-only tool versions (not caller-overridable, by design)
 
