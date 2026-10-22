@@ -9,7 +9,9 @@ name: App Build & Deploy Release
 #                 Worker (`deploy --env demo`)
 #   released    → notify Slack that the staged version is ready; an
 #                 authorized deployer promotes it by dispatching the app's
-#                 promote-production.yml caller (app-promote-production.yml)
+#                 promote-production.yml caller (app-promote-production.yml).
+#                 For a hotfix promote would refuse, the notification gives
+#                 the rollback.yml command instead (README "Hotfix releases")
 #
 # Production promotion is deliberately NOT automated on the release event.
 # Promotion goes through the allowlist-gated dispatch workflow
@@ -290,16 +292,52 @@ jobs:
           github-token: ${{ github.token }}
 
   # `released` does not deploy — it announces that the version staged for
-  # this tag is ready and posts the gated promotion instructions. The link
-  # assumes the caller repo names its promote caller `promote-production.yml`
-  # (documented in the README). No Cloudflare token, no wrangler, no
-  # artifact; needs only network access to post Slack.
+  # this tag is ready and posts the gated promotion instructions. The links
+  # assume the caller repo names its callers `promote-production.yml` and
+  # `rollback.yml` (documented in the README). No Cloudflare token, no
+  # wrangler, no artifact; needs only network access to post Slack.
   notify-production-promotion:
     runs-on: ubuntu-latest
     if: github.event.action == 'released'
     permissions:
       contents: read
     steps:
+      - name: '📥 Checkout Code from Release Tag'
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          # Full history: the route check below needs origin/main
+          fetch-depth: 0
+          persist-credentials: false
+
+      # The same test as the verify step in app-promote-production.yml, which
+      # is the gate. This copy only picks the command the notification gives:
+      # if the two drift, the worst case is a wrong hint, never a wrong
+      # deploy. It must never block the notification, hence continue-on-error
+      # and the 'promote' default below.
+      - name: '🔎 Check whether promote will accept this release'
+        id: route
+        continue-on-error: true
+        shell: bash
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          RELEASE_SHA="$(git rev-parse --verify "refs/tags/${TAG}^{commit}")"
+          ROUTE=rollback
+          if git merge-base --is-ancestor "$RELEASE_SHA" origin/main; then
+            ROUTE=promote
+          elif BASE="$(git merge-base "$RELEASE_SHA" origin/main)"; then
+            PATCH="${RUNNER_TEMP}/release-delta.patch"
+            MAIN_INDEX="${RUNNER_TEMP}/main.index"
+            git diff --binary --no-renames "$BASE" "$RELEASE_SHA" > "$PATCH"
+            GIT_INDEX_FILE="$MAIN_INDEX" git read-tree origin/main
+            if GIT_INDEX_FILE="$MAIN_INDEX" git apply --cached --check --reverse --allow-empty "$PATCH"; then
+              ROUTE=promote
+            fi
+          fi
+          echo "Route for ${TAG}: ${ROUTE}"
+          echo "route=${ROUTE}" >> "$GITHUB_OUTPUT"
+
       - name: '📣 Request production promotion'
         shell: bash
         env:
@@ -312,6 +350,7 @@ jobs:
           ACTOR: ${{ github.actor }}
           SERVER_URL: ${{ github.server_url }}
           REPOSITORY: ${{ github.repository }}
+          ROUTE: ${{ steps.route.outputs.route || 'promote' }}
         run: |
           set -euo pipefail
 
@@ -320,24 +359,53 @@ jobs:
           WORKER="${WORKER_NAME:-<worker from wrangler.toml [env.prod]>}"
           RELEASE_URL="${SERVER_URL}/${REPOSITORY}/releases/tag/${TAG}"
           PROMOTE_URL="${SERVER_URL}/${REPOSITORY}/actions/workflows/promote-production.yml"
+          ROLLBACK_URL="${SERVER_URL}/${REPOSITORY}/actions/workflows/rollback.yml"
           DASH_URL="https://dash.cloudflare.com/${ACCOUNT_ID}/workers/services/view/${WORKER}/production/deployments"
           # No -f tag=...: the promote workflow takes no inputs, it resolves
           # GitHub's latest release itself. Passing one is rejected by gh.
           GH_COMMAND="gh workflow run promote-production.yml --repo ${REPOSITORY} --ref main"
+          ROLLBACK_COMMAND="gh workflow run rollback.yml --repo ${REPOSITORY} --ref main -f tag=${TAG} -f environment=prod"
 
           # printf per line keeps the message free of YAML/heredoc indentation.
-          TEXT=$(printf '%s\n' \
+          HEADER=$(printf '%s\n' \
             "🚀 *${APP_NAME}*: release *${TAG}* deployed to staging." \
-            "• Release: <${RELEASE_URL}|${TAG}> by ${ACTOR}" \
-            "" \
-            "*To promote:*" \
-            '```' \
-            "${GH_COMMAND}" \
-            '```' \
-            "Or via <${PROMOTE_URL}|Promote Production> → Run workflow." \
-            "Emergency fallback: a Cloudflare admin can promote from the <${DASH_URL}|dashboard>.")
+            "• Release: <${RELEASE_URL}|${TAG}> by ${ACTOR}")
+          if [ "$ROUTE" = "rollback" ]; then
+            # A hotfix promote will refuse: it is not on main and main does
+            # not have its changes line for line (see the route step).
+            TEXT=$(printf '%s\n' \
+              "$HEADER" \
+              "" \
+              "⚠️ *Hotfix:* ${TAG} is not on main, and main does not have its changes line for line, so promote will refuse it." \
+              "" \
+              "*If main already has these fixes* (a backport, or main has moved on since), ship it with:" \
+              '```' \
+              "${ROLLBACK_COMMAND}" \
+              '```' \
+              "Or via <${ROLLBACK_URL}|Manual Rollback> → Run workflow (tag ${TAG}, environment prod)." \
+              "" \
+              "*If not*, merge the fix into main first, then promote:" \
+              '```' \
+              "${GH_COMMAND}" \
+              '```' \
+              "Emergency fallback: a Cloudflare admin can promote from the <${DASH_URL}|dashboard>.")
+          else
+            TEXT=$(printf '%s\n' \
+              "$HEADER" \
+              "" \
+              "*To promote:*" \
+              '```' \
+              "${GH_COMMAND}" \
+              '```' \
+              "Or via <${PROMOTE_URL}|Promote Production> → Run workflow." \
+              "Emergency fallback: a Cloudflare admin can promote from the <${DASH_URL}|dashboard>.")
+          fi
           if [ -n "$PRODUCTION_URL" ]; then
-            TEXT="${TEXT}"$'\n'"Once promoted, live at ${PRODUCTION_URL}"
+            if [ "$ROUTE" = "rollback" ]; then
+              TEXT="${TEXT}"$'\n'"Once shipped, live at ${PRODUCTION_URL}"
+            else
+              TEXT="${TEXT}"$'\n'"Once promoted, live at ${PRODUCTION_URL}"
+            fi
           fi
 
           PAYLOAD=$(jq -n --arg text "$TEXT" '{text: $text}')
@@ -352,11 +420,24 @@ jobs:
             exit 1
           fi
 
-          {
-            echo "### 🚀 Production promotion required"
-            echo "Release [\`${TAG}\`](${RELEASE_URL}) is staged. An authorized deployer must promote it:"
-            echo ""
-            echo "\`\`\`${GH_COMMAND}\`\`\`"
-            echo ""
-            echo "Or dispatch [Promote Production](${PROMOTE_URL})."
-          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$ROUTE" = "rollback" ]; then
+            {
+              echo "### 🚀 Production release required (hotfix)"
+              echo "Release [\`${TAG}\`](${RELEASE_URL}) is staged. It is not on main and main does not have its changes line for line, so promote will refuse it."
+              echo ""
+              echo "If main already has these fixes, an authorized deployer ships it with:"
+              echo ""
+              echo "\`\`\`${ROLLBACK_COMMAND}\`\`\`"
+              echo ""
+              echo "If not, merge the fix into main first, then dispatch [Promote Production](${PROMOTE_URL})."
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            {
+              echo "### 🚀 Production promotion required"
+              echo "Release [\`${TAG}\`](${RELEASE_URL}) is staged. An authorized deployer must promote it:"
+              echo ""
+              echo "\`\`\`${GH_COMMAND}\`\`\`"
+              echo ""
+              echo "Or dispatch [Promote Production](${PROMOTE_URL})."
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
