@@ -120,7 +120,7 @@ jobs:
 
       - name: Run codespell
         if: always()
-        uses: codespell-project/actions-codespell@406322ec52dd7b488e48c1c4b82e2a8b3a1bf630 # v2.1
+        uses: codespell-project/actions-codespell@8f01853be192eb0f849a5c7d721450e7a467c579 # v2.2
         continue-on-error: ${{ !inputs.codespell-blocking }}
         with:
           path: ${{ inputs.codespell-path }}
@@ -207,7 +207,7 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
       - name: TruffleHog scan
-        uses: trufflesecurity/trufflehog@0c9fbff42893900f6cc15010c408d70d6013819c # v3.90.4
+        uses: trufflesecurity/trufflehog@31ce31ee1abbcc7dc8eee5764c17121c3044c8b2 # v3.99.7
         with:
           extra_args: ${{ inputs.trufflehog-extra-args }}
 
@@ -222,6 +222,6 @@ jobs:
           persist-credentials: false
 
       - name: Verify all GitHub Actions are SHA-pinned
-        uses: suzuki-shunsuke/pinact-action@cf51507d80d4d6522a07348e3d58790290eaf0b6 # v2.0.0
+        uses: suzuki-shunsuke/pinact-action@896d595f299e71d65b9d28349d6956abe144390a # v3.0.0
         with:
           skip_push: 'true'
