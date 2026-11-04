@@ -21,10 +21,15 @@
 /actions/deploy-app/                             @gpmayorga @hieronx @gregory-kf
 /actions/setup-app/                              @gpmayorga @hieronx @gregory-kf
 
+# --- Shared config consumed by every pipeline ---
+/lighthouserc.json                               @gpmayorga @hieronx @gregory-kf
+/README.md                                       @gpmayorga @hieronx @gregory-kf
+
 # --- Security controls & governance ---
 # lib-ci enforces SHA-pinning and lint; .pinact.yaml defines pin exceptions;
 # CODEOWNERS and CLAUDE.md govern who/what may change the above.
 /.github/workflows/lib-ci.yml                    @gpmayorga @hieronx @gregory-kf
 /.pinact.yaml                                    @gpmayorga @hieronx @gregory-kf
 /.github/CODEOWNERS                              @gpmayorga @hieronx @gregory-kf
+/.github/dependabot.yml                          @gpmayorga @hieronx @gregory-kf
 /CLAUDE.md                                       @gpmayorga @hieronx @gregory-kf

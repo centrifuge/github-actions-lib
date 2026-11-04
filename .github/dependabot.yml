@@ -1,0 +1,17 @@
+version: 2
+
+updates:
+  - package-ecosystem: 'github-actions'
+    directory: '/'
+    schedule:
+      interval: 'monthly'
+      timezone: 'Europe/Berlin'
+    open-pull-requests-limit: 1
+    labels: []
+    # First-party refs to this library are bumped by hand, in a reviewed PR.
+    ignore:
+      - dependency-name: 'centrifuge/github-actions-lib/*'
+    groups:
+      github-actions-updates:
+        patterns:
+          - '*'

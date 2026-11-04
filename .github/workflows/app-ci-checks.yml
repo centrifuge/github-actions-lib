@@ -88,13 +88,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: '📥 Checkout Code'
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
       - name: '🧰 Setup Toolchain'
         id: setup
-        uses: centrifuge/github-actions-lib/actions/setup-app@main
+        uses: centrifuge/github-actions-lib/actions/setup-app@ea072316a2d5e69a325a91f8f5c7233ff5cb6ae0 # lib-pin
         with:
           node-version: ${{ inputs.node-version }}
 
@@ -138,7 +138,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: '📥 Checkout Code'
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
@@ -147,7 +147,7 @@ jobs:
         # Pipeline-only pin, not caller-overridable — see README "Pinned
         # pipeline-only tool versions". audit-command's pnpm@11 needs Node
         # >=22.13; the app's own node-version is irrelevant to audit results.
-        uses: centrifuge/github-actions-lib/actions/setup-app@main
+        uses: centrifuge/github-actions-lib/actions/setup-app@ea072316a2d5e69a325a91f8f5c7233ff5cb6ae0 # lib-pin
         with:
           node-version: '24'
 
@@ -199,7 +199,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event.pull_request.head.ref }}
           # Must be a literal: expressions can't do arithmetic, so a computed
@@ -217,7 +217,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 

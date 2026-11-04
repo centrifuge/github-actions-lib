@@ -61,13 +61,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: '📥 Checkout Code'
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
       - name: '🔨 Build App'
         id: build
-        uses: centrifuge/github-actions-lib/actions/build-app@main
+        uses: centrifuge/github-actions-lib/actions/build-app@ea072316a2d5e69a325a91f8f5c7233ff5cb6ae0 # lib-pin
         with:
           app-name: ${{ inputs.app-name }}
           node-version: ${{ inputs.node-version }}
@@ -88,13 +88,13 @@ jobs:
       deployment-url: ${{ steps.deploy.outputs.deployment-url }}
     steps:
       - name: '📥 Checkout Code'
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
       - name: '🚀 Deploy App'
         id: deploy
-        uses: centrifuge/github-actions-lib/actions/deploy-app@main
+        uses: centrifuge/github-actions-lib/actions/deploy-app@ea072316a2d5e69a325a91f8f5c7233ff5cb6ae0 # lib-pin
         with:
           environment: ${{ github.event_name == 'pull_request' && 'preview' || 'nightly' }}
           app-name: ${{ inputs.app-name }}
@@ -113,7 +113,7 @@ jobs:
       checks: write
     steps:
       - name: '📥 Checkout Code'
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
@@ -121,10 +121,10 @@ jobs:
       # `uses: ./` reference cannot resolve a runtime path.
       - name: '📥 Fetch Shared Lighthouse Config'
         if: ${{ inputs.lighthouse-config == '' }}
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: centrifuge/github-actions-lib
-          ref: main
+          ref: ea072316a2d5e69a325a91f8f5c7233ff5cb6ae0 # lib-pin
           path: .lib
           persist-credentials: false
 
@@ -148,7 +148,7 @@ jobs:
           fi
           CONFIG="$LHCI_CONFIG"
           [ -z "$CONFIG" ] && CONFIG=".lib/lighthouserc.json"
-          npm install -g @lhci/cli
+          npm install -g @lhci/cli@0.15.1
 
           # Tee so the hosted report link can be lifted out of the output;
           # pipefail keeps a genuine lhci failure from being masked by tee.

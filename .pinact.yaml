@@ -1,7 +1,8 @@
 ---
-# First-party composite refs deliberately track @main so one library commit
-# ships matching workflows and actions; everything third-party stays SHA-pinned.
+# First-party refs to this library are pinned to a full commit SHA with a
+# `# lib-pin` marker rather than a version tag, so pinact skips them by name.
+# `lib-ci.yml` enforces the SHA form separately.
 version: 3
 ignore_actions:
   - name: centrifuge/github-actions-lib/.*
-    ref: main
+    ref: .*

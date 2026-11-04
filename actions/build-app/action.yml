@@ -32,6 +32,14 @@ inputs:
     description: 'GitHub token (required on release events for gh release view/upload)'
     required: false
     default: ''
+  attest:
+    description: >-
+      'true' to sign a build provenance attestation for the release bundle
+      (prereleased events only). The calling job must grant `id-token: write`
+      and `attestations: write`, and the repository must support artifact
+      attestations (public repos, or private on GitHub Enterprise Cloud).
+    required: false
+    default: 'false'
 
 outputs:
   artifact-name:
@@ -46,7 +54,7 @@ runs:
   steps:
     - name: '🧰 Setup Toolchain'
       id: setup
-      uses: centrifuge/github-actions-lib/actions/setup-app@main
+      uses: centrifuge/github-actions-lib/actions/setup-app@ea072316a2d5e69a325a91f8f5c7233ff5cb6ae0 # lib-pin
       with:
         node-version: ${{ inputs.node-version }}
 
@@ -125,3 +133,9 @@ runs:
       run: |
         cd dist && zip -r "../$ARTIFACT_NAME" . && cd ..
         gh release upload "$GH_REF_NAME" "$ARTIFACT_NAME" --repo "$GH_REPOSITORY"
+
+    - name: '🔏 Attest Release Bundle Provenance'
+      if: ${{ github.event.action == 'prereleased' && inputs.attest == 'true' }}
+      uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+      with:
+        subject-path: ${{ steps.check-artifact.outputs.artifact-name }}

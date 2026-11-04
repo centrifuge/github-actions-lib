@@ -17,8 +17,9 @@ publishes production app code**. Treat every change as a supply-chain change.
 
 ## Security model — read before editing
 
-- **`main` is the trust root.** Consumers pin `@main`, so merging here is
-  equivalent to shipping to both apps' pipelines. Protect `main` with branch
+- **`main` is the trust root.** Consumers pin a full commit SHA of this repo,
+  so a merge here reaches a pipeline only when a consumer bumps its pin in a
+  reviewed PR. Review a lib change as if it ships to both apps' pipelines. Protect `main` with branch
   protection, required reviews, required `lib-ci` status checks, and the
   `CODEOWNERS` review gate. Never weaken these to land a change faster.
 - **No secrets in this repo, ever.** No tokens, webhooks, account IDs, or
@@ -33,8 +34,8 @@ publishes production app code**. Treat every change as a supply-chain change.
   more). Widening a job's permissions widens what a compromised step can do
   with the caller's token.
 - **All third-party actions are SHA-pinned**, enforced by `lib-ci.yml`
-  (pinact). First-party refs to this library stay `@main` (consumers'
-  `.pinact.yaml` ignores them). Never introduce a tag- or branch-pinned
+  (pinact). First-party refs to this library are SHA-pinned too (the `# lib-pin`
+  comment marks them); never reintroduce `@main`. Never introduce a tag- or branch-pinned
   third-party action; never disable the pin check.
 - **Never nest reusable workflows.** A reusable workflow that `uses:` another
   reusable workflow fails the whole graph at parse time (`startup_failure`,
@@ -48,7 +49,7 @@ publishes production app code**. Treat every change as a supply-chain change.
   interpolated values quoted.
 - **Composite action refs resolve at compile time against the action's own
   repo tree.** Inside this library, reference sibling composites cross-repo
-  (`centrifuge/github-actions-lib/actions/<name>@main`), not `./actions/...`.
+  (`centrifuge/github-actions-lib/actions/<name>@<sha>`), not `./actions/...`.
 
 ## Deployment behavior — intentional decisions, do not silently revert
 
@@ -146,8 +147,8 @@ lighthouserc.json               # shared LHCI config (consumed by app-build-depl
    secret contracts, grep both app repos' `.github/workflows/` callers and
    coordinate — a contract change breaks every caller's next run at once.
 4. To exercise a risky change against a real app pipeline, point one app
-   caller at your branch (`...@your-branch`) in a draft PR, then revert the ref
-   to `@main` before merging.
+   caller at your branch's commit SHA in a draft PR, then revert the ref to the
+   reviewed pin before merging.
 5. Tag notable states (`v1.0.0`, …) as human-readable restore points.
 
 ## Conventions

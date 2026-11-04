@@ -17,7 +17,7 @@ jobs:
   actionlint:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
@@ -31,7 +31,7 @@ jobs:
   pinned-actions-check:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
@@ -40,14 +40,27 @@ jobs:
         with:
           skip_push: 'true'
 
+      # pinact skips first-party refs (they carry a `# lib-pin` marker, not a
+      # version), so enforce the full-SHA form for them here.
+      - name: Verify first-party refs are full-SHA pinned
+        run: |
+          bad=$(grep -rnE --exclude=lib-ci.yml 'centrifuge/github-actions-lib/[^[:space:]]*@' .github actions | grep -vE '@[0-9a-f]{40}([[:space:]]|$)' || true)
+          badref=$(grep -rn -A2 --exclude=lib-ci.yml 'repository: centrifuge/github-actions-lib' .github actions | grep -E 'ref:' | grep -vE 'ref:[[:space:]]+[0-9a-f]{40}([[:space:]]|$)' || true)
+          bad="$bad$badref"
+          if [ -n "$bad" ]; then
+            echo "::error::First-party refs must be full commit SHAs:"
+            echo "$bad"
+            exit 1
+          fi
+
   yamllint:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
       - name: Run yamllint
         run: |
-          pip install --user yamllint
+          pip install --user yamllint==1.35.1
           ~/.local/bin/yamllint -d "{extends: relaxed, rules: {line-length: disable}}" .github actions

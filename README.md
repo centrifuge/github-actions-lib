@@ -30,7 +30,7 @@ The reusable workflows here reference this library's composite actions
 
 ```yaml
 - uses: actions/checkout@<sha>            # caller repo
-- uses: centrifuge/github-actions-lib/actions/build-app@main
+- uses: centrifuge/github-actions-lib/actions/build-app@<full-commit-sha> # pin a lib commit
   with:
     app-name: my-app
     node-version: '24'
@@ -41,8 +41,10 @@ Do **not** `actions/checkout` this library into a path and reference
 resolves at compile time against the workflow's own repo tree, not the
 runtime workspace, and every caller gets a `startup_failure` with zero jobs.
 
-Workflows and composites both pin `@main`, so a library update moves them
-together. The only legitimate runtime checkout of this repo is the Lighthouse
+Consumers and the library's own composite refs pin a **full commit SHA**, never
+`@main`: a merge here reaches no pipeline until a consumer bumps its pin in a
+reviewed PR. Inside the library the SHA names an earlier lib commit, so a
+composite change reaches a workflow in the lib only after a follow-up bump. The only legitimate runtime checkout of this repo is the Lighthouse
 job reading `lighthouserc.json` as a plain file.
 
 ## Usage
@@ -60,7 +62,7 @@ jobs:
       contents: read
       actions: read
       packages: read
-    uses: centrifuge/github-actions-lib/.github/workflows/app-ci-checks.yml@main
+    uses: centrifuge/github-actions-lib/.github/workflows/app-ci-checks.yml@<full-commit-sha> # pin a lib commit
     with:
       node-version: '24'
       codespell-skip: 'src/assets/**,.svg,.png'
@@ -80,7 +82,7 @@ jobs:
       contents: write        # ceiling: gh release upload in the build job
       deployments: write
       packages: read
-    uses: centrifuge/github-actions-lib/.github/workflows/app-build-deploy-release.yml@main
+    uses: centrifuge/github-actions-lib/.github/workflows/app-build-deploy-release.yml@<full-commit-sha> # pin a lib commit
     with:
       app-name: my-app
       node-version: '24'
@@ -301,3 +303,12 @@ workflow run immediately:
    coordinated with both app repos — grep their `.github/workflows/` callers
    first.
 4. Tag notable states (`v1.0.0`, …) as human-readable restore points.
+
+## Pinning and provenance
+
+- Consumers reference this library by full commit SHA. To take a change, bump
+  the SHA in the caller workflows (and the `# lib-pin` marker stays as is).
+- `build-app` can sign a provenance attestation for the prerelease bundle
+  (`attest: 'true'`). It needs `id-token: write` and `attestations: write` on
+  the calling job, and a repository that supports artifact attestations
+  (public, or private on GitHub Enterprise Cloud). Off by default.
