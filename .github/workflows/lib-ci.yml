@@ -41,17 +41,44 @@ jobs:
           skip_push: 'true'
 
       # pinact skips first-party refs (they carry a `# lib-pin` marker, not a
-      # version), so enforce the full-SHA form for them here.
+      # version), so enforce the full-SHA form for them here. Parsed as YAML
+      # rather than grepped, and it covers this file too.
       - name: Verify first-party refs are full-SHA pinned
         run: |
-          bad=$(grep -rnE --exclude=lib-ci.yml 'centrifuge/github-actions-lib/[^[:space:]]*@' .github actions | grep -vE '@[0-9a-f]{40}([[:space:]]|$)' || true)
-          badref=$(grep -rn -A2 --exclude=lib-ci.yml 'repository: centrifuge/github-actions-lib' .github actions | grep -E 'ref:' | grep -vE 'ref:[[:space:]]+[0-9a-f]{40}([[:space:]]|$)' || true)
-          bad="$bad$badref"
-          if [ -n "$bad" ]; then
-            echo "::error::First-party refs must be full commit SHAs:"
-            echo "$bad"
-            exit 1
-          fi
+          pip install --user pyyaml==6.0.2
+          python3 - <<'PY'
+          import glob, re, sys, yaml
+          LIB = 'centrifuge/github-actions-lib'
+          SHA = re.compile(r'^[0-9a-f]{40}$')
+          bad = []
+
+          def check_uses(where, uses):
+              if isinstance(uses, str) and uses.lower().lstrip('./').startswith(LIB):
+                  ref = uses.rsplit('@', 1)[1] if '@' in uses else ''
+                  if not SHA.match(ref):
+                      bad.append(f'{where}: {uses}')
+
+          def walk(where, node):
+              if isinstance(node, dict):
+                  check_uses(where, node.get('uses'))
+                  w = node.get('with')
+                  if isinstance(w, dict) and str(w.get('repository', '')).strip().lower() == LIB:
+                      if not SHA.match(str(w.get('ref', ''))):
+                          bad.append(f"{where}: checkout of {LIB} with ref {w.get('ref')!r}")
+                  for v in node.values():
+                      walk(where, v)
+              elif isinstance(node, list):
+                  for v in node:
+                      walk(where, v)
+
+          for path in glob.glob('.github/**/*.y*ml', recursive=True) + glob.glob('actions/**/*.y*ml', recursive=True):
+              with open(path) as fh:
+                  walk(path, yaml.safe_load(fh))
+          if bad:
+              print('::error::First-party refs must be full commit SHAs:')
+              print('\n'.join(bad))
+              sys.exit(1)
+          PY
 
   yamllint:
     runs-on: ubuntu-latest

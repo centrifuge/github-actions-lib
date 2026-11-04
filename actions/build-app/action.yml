@@ -122,6 +122,22 @@ runs:
         name: ${{ inputs.app-name }}-build-${{ github.sha }}
         path: ./dist
 
+    - name: '📦 Create Release Bundle'
+      if: ${{ github.event.action == 'prereleased' }}
+      shell: sh
+      env:
+        ARTIFACT_NAME: ${{ steps.check-artifact.outputs.artifact-name }}
+      run: |
+        cd dist && zip -r "../$ARTIFACT_NAME" . && cd ..
+
+    # Before the upload: if attestation is unsupported for this repo the job
+    # fails here, not after the bundle is already published on the release.
+    - name: '🔏 Attest Release Bundle Provenance'
+      if: ${{ github.event.action == 'prereleased' && inputs.attest == 'true' }}
+      uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+      with:
+        subject-path: ${{ steps.check-artifact.outputs.artifact-name }}
+
     - name: '📦 Upload Build Artifact to Release'
       if: ${{ github.event.action == 'prereleased' }}
       shell: sh
@@ -130,12 +146,4 @@ runs:
         GH_REF_NAME: ${{ github.ref_name }}
         GH_REPOSITORY: ${{ github.repository }}
         ARTIFACT_NAME: ${{ steps.check-artifact.outputs.artifact-name }}
-      run: |
-        cd dist && zip -r "../$ARTIFACT_NAME" . && cd ..
-        gh release upload "$GH_REF_NAME" "$ARTIFACT_NAME" --repo "$GH_REPOSITORY"
-
-    - name: '🔏 Attest Release Bundle Provenance'
-      if: ${{ github.event.action == 'prereleased' && inputs.attest == 'true' }}
-      uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
-      with:
-        subject-path: ${{ steps.check-artifact.outputs.artifact-name }}
+      run: gh release upload "$GH_REF_NAME" "$ARTIFACT_NAME" --repo "$GH_REPOSITORY"

@@ -44,8 +44,9 @@ runtime workspace, and every caller gets a `startup_failure` with zero jobs.
 Consumers and the library's own composite refs pin a **full commit SHA**, never
 `@main`: a merge here reaches no pipeline until a consumer bumps its pin in a
 reviewed PR. Inside the library the SHA names an earlier lib commit, so a
-composite change reaches a workflow in the lib only after a follow-up bump. The only legitimate runtime checkout of this repo is the Lighthouse
-job reading `lighthouserc.json` as a plain file.
+composite change reaches a workflow in the lib only after a follow-up bump.
+The only legitimate runtime checkout of this repo is the Lighthouse job
+reading `lighthouserc.json` as a plain file.
 
 ## Usage
 

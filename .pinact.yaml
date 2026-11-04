@@ -1,7 +1,9 @@
 ---
 # First-party refs to this library are pinned to a full commit SHA with a
 # `# lib-pin` marker rather than a version tag, so pinact skips them by name.
-# `lib-ci.yml` enforces the SHA form separately.
+# `lib-ci.yml` enforces the SHA form separately. `ref: .*` is deliberately
+# broad: pinact can't validate a `# lib-pin` marker, so this check is the only
+# gate for first-party refs and must not be removed without replacing it.
 version: 3
 ignore_actions:
   - name: centrifuge/github-actions-lib/.*
