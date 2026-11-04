@@ -305,11 +305,7 @@ workflow run immediately:
    first.
 4. Tag notable states (`v1.0.0`, …) as human-readable restore points.
 
-## Pinning and provenance
+## Pinning
 
 - Consumers reference this library by full commit SHA. To take a change, bump
   the SHA in the caller workflows (and the `# lib-pin` marker stays as is).
-- `build-app` can sign a provenance attestation for the prerelease bundle
-  (`attest: 'true'`). It needs `id-token: write` and `attestations: write` on
-  the calling job, and a repository that supports artifact attestations
-  (public, or private on GitHub Enterprise Cloud). Off by default.
