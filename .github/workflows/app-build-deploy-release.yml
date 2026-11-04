@@ -121,14 +121,14 @@ jobs:
       packages: read
     steps:
       - name: '📥 Checkout Code from Release Tag'
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # build-app receives the token explicitly; keep it out of .git/config
           persist-credentials: false
 
       - name: '🔨 Build App'
         id: build
-        uses: centrifuge/github-actions-lib/actions/build-app@main
+        uses: centrifuge/github-actions-lib/actions/build-app@ea072316a2d5e69a325a91f8f5c7233ff5cb6ae0 # lib-pin
         with:
           app-name: ${{ inputs.app-name }}
           bundle-name-prefix: ${{ inputs.bundle-name-prefix }}
@@ -153,13 +153,13 @@ jobs:
       deployment-url: ${{ steps.deploy.outputs.deployment-url }}
     steps:
       - name: '📥 Checkout Code'
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
       - name: '🚀 Deploy App to Staging'
         id: deploy
-        uses: centrifuge/github-actions-lib/actions/deploy-app@main
+        uses: centrifuge/github-actions-lib/actions/deploy-app@ea072316a2d5e69a325a91f8f5c7233ff5cb6ae0 # lib-pin
         with:
           environment: staging
           app-name: ${{ inputs.app-name }}
@@ -180,7 +180,7 @@ jobs:
       url: ${{ steps.detect.outputs.url }}
     steps:
       - name: '📥 Checkout Code from Release Tag'
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
@@ -245,13 +245,13 @@ jobs:
       packages: read
     steps:
       - name: '📥 Checkout Code from Release Tag'
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
       - name: '🔨 Build App (demo, testnet mode)'
         id: build
-        uses: centrifuge/github-actions-lib/actions/build-app@main
+        uses: centrifuge/github-actions-lib/actions/build-app@ea072316a2d5e69a325a91f8f5c7233ff5cb6ae0 # lib-pin
         with:
           app-name: ${{ inputs.app-name }}-demo
           bundle-name-prefix: ${{ format('{0}-demo', inputs.bundle-name-prefix || inputs.app-name) }}
@@ -277,13 +277,13 @@ jobs:
       deployment-url: ${{ steps.deploy.outputs.deployment-url }}
     steps:
       - name: '📥 Checkout Code'
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
       - name: '🚀 Deploy App to Demo'
         id: deploy
-        uses: centrifuge/github-actions-lib/actions/deploy-app@main
+        uses: centrifuge/github-actions-lib/actions/deploy-app@ea072316a2d5e69a325a91f8f5c7233ff5cb6ae0 # lib-pin
         with:
           environment: demo
           app-name: ${{ inputs.app-name }}-demo
@@ -303,7 +303,7 @@ jobs:
       contents: read
     steps:
       - name: '📥 Checkout Code from Release Tag'
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # Full history: the route check below needs origin/main
           fetch-depth: 0

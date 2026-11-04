@@ -45,7 +45,7 @@ runs:
   using: 'composite'
   steps:
     - name: '🧰 Setup Toolchain'
-      uses: centrifuge/github-actions-lib/actions/setup-app@main
+      uses: centrifuge/github-actions-lib/actions/setup-app@ea072316a2d5e69a325a91f8f5c7233ff5cb6ae0 # lib-pin
       with:
         node-version: ${{ inputs.node-version }}
         cache: ''
