@@ -20,8 +20,8 @@ publishes production app code**. Treat every change as a supply-chain change.
 - **`main` is the trust root.** Consumers pin a full commit SHA of this repo,
   so a merge here reaches a pipeline only when a consumer bumps its pin in a
   reviewed PR. Review a lib change as if it ships to both apps' pipelines.
-  Protect `main` with branch protection, required reviews, required `lib-ci` status checks, and the
-  `CODEOWNERS` review gate. Never weaken these to land a change faster.
+  Protect `main` with branch protection, required reviews, required `lib-ci`
+  status checks, and the `CODEOWNERS` review gate. Never weaken these to land a change faster.
 - **No secrets in this repo, ever.** No tokens, webhooks, account IDs, or
   private hostnames in workflows, actions, comments, or fixtures. Secrets live
   only in the consumer repos and arrive at call time.

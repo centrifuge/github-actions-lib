@@ -45,17 +45,22 @@ jobs:
       # rather than grepped, and it covers this file too.
       - name: Verify first-party refs are full-SHA pinned
         run: |
-          pip install --user pyyaml==6.0.2
+          cat > "$RUNNER_TEMP/requirements.txt" <<'REQ'
+          pyyaml==6.0.2 --hash=sha256:ec031d5d2feb36d1d1a24380e4db6d43695f3748343d99434e6f5f9156aaa2ed --hash=sha256:3ad2a3decf9aaba3d29c8f537ac4b243e36bef957511b4766cb0057d32b0be85 --hash=sha256:80bab7bfc629882493af4aa31a4cfa43a4c57c83813253626916b8c7ada83476 --hash=sha256:70b189594dbe54f75ab3a1acec5f1e3faa7e8cf2f1e08d9b561cb41b845f69d5
+          REQ
+          pip install --user --require-hashes --only-binary=:all: -r "$RUNNER_TEMP/requirements.txt"
           python3 - <<'PY'
           import glob, re, sys, yaml
           LIB = 'centrifuge/github-actions-lib'
-          SHA = re.compile(r'^[0-9a-f]{40}$')
+          SHA = re.compile(r'[0-9a-f]{40}')
+          # Static check only: a ref or repository set through a ${{ }} expression
+          # is not resolved, so it fails the SHA test and must be spelled out.
           bad = []
 
           def check_uses(where, uses):
               if isinstance(uses, str) and uses.lower().lstrip('./').startswith(LIB):
                   ref = uses.rsplit('@', 1)[1] if '@' in uses else ''
-                  if not SHA.match(ref):
+                  if not SHA.fullmatch(ref):
                       bad.append(f'{where}: {uses}')
 
           def walk(where, node):
@@ -63,7 +68,7 @@ jobs:
                   check_uses(where, node.get('uses'))
                   w = node.get('with')
                   if isinstance(w, dict) and str(w.get('repository', '')).strip().lower() == LIB:
-                      if not SHA.match(str(w.get('ref', ''))):
+                      if not SHA.fullmatch(str(w.get('ref', ''))):
                           bad.append(f"{where}: checkout of {LIB} with ref {w.get('ref')!r}")
                   for v in node.values():
                       walk(where, v)
