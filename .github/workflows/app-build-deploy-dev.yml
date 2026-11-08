@@ -79,7 +79,6 @@ jobs:
     permissions:
       contents: read
       deployments: write
-      id-token: write
     runs-on: ubuntu-latest
     environment:
       name: ${{ github.event_name == 'pull_request' && 'preview' || 'nightly' }}
