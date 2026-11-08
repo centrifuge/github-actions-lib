@@ -53,7 +53,7 @@ jobs:
           import glob, re, sys, yaml
           LIB = 'centrifuge/github-actions-lib'
           SHA = re.compile(r'[0-9a-f]{40}')
-          # Static check only: a ref or repository set through a ${{ }} expression
+          # Static check only: a ref or repository set through a GitHub expression
           # is not resolved, so it fails the SHA test and must be spelled out.
           bad = []
 
