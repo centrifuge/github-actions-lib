@@ -100,7 +100,7 @@ workflow (called jobs can only downgrade):
 | Workflow | Caller job permissions |
 |---|---|
 | `app-ci-checks.yml` | `contents: read`, `actions: read`, `packages: read` |
-| `app-build-deploy-dev.yml` | `contents: read`, `deployments: write`, `id-token: write`, `packages: read` |
+| `app-build-deploy-dev.yml` | `contents: read`, `deployments: write`, `packages: read` |
 | `app-build-deploy-release.yml` | `contents: write`, `deployments: write`, `packages: read` |
 | `app-promote-production.yml` | `contents: read`, `deployments: write` |
 | `app-rollback.yml` | `contents: read`, `deployments: write` |
