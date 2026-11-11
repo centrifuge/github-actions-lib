@@ -11,12 +11,14 @@ description: >-
 # Linking in the sidebar fires no webhook, so a PR that failed this check does
 # not turn green on its own: re-run the check after linking.
 #
-# The calling job needs `pull-requests: read` (and `contents: read`). No
+# The calling job needs `pull-requests: read` and `issues: read` (without the
+# latter GitHub hides the linked issue and the count is always 0), plus
+# `contents: read`. No
 # checkout is needed. Call it from a `pull_request` workflow.
 
 inputs:
   github-token:
-    description: 'Token used to read the pull request (needs pull-requests: read)'
+    description: 'Token used to read the pull request and its issues (needs pull-requests: read, issues: read)'
     required: false
     default: ${{ github.token }}
 
