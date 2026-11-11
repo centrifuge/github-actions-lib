@@ -1,0 +1,59 @@
+name: 'Require a linked issue'
+description: >-
+  Fails a pull request that has no linked issue (IT compliance control: every
+  change traces back to an issue). Dependabot pull requests are exempt.
+
+# Asks GitHub for the PR's `closingIssuesReferences`, the same list that drives
+# the Development sidebar. A closing keyword in the PR body (`Closes #123`) and
+# an issue linked in the sidebar both land in it. Third-party actions that
+# parse the body text miss the sidebar.
+#
+# Linking in the sidebar fires no webhook, so a PR that failed this check does
+# not turn green on its own: re-run the check after linking.
+#
+# The calling job needs `pull-requests: read` (and `contents: read`). No
+# checkout is needed. Call it from a `pull_request` workflow.
+
+inputs:
+  github-token:
+    description: 'Token used to read the pull request (needs pull-requests: read)'
+    required: false
+    default: ${{ github.token }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: '🔗 Require a linked issue'
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        REPO: ${{ github.repository }}
+        PR_NUMBER: ${{ github.event.pull_request.number }}
+        PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+      run: |
+        # Dependabot cannot link an issue; the dependency bump is its own record.
+        if [ "$PR_AUTHOR" = "dependabot[bot]" ]; then
+          echo "Dependabot PR: exempt."
+          exit 0
+        fi
+
+        owner="${REPO%%/*}"
+        name="${REPO##*/}"
+        count=$(gh api graphql \
+          -f query='query($owner: String!, $name: String!, $number: Int!) {
+            repository(owner: $owner, name: $name) {
+              pullRequest(number: $number) {
+                closingIssuesReferences(first: 1) { totalCount }
+              }
+            }
+          }' \
+          -f owner="$owner" -f name="$name" -F number="$PR_NUMBER" \
+          --jq '.data.repository.pullRequest.closingIssuesReferences.totalCount')
+
+        if [ "$count" -gt 0 ]; then
+          echo "PR #${PR_NUMBER} links ${count}+ issue(s)."
+          exit 0
+        fi
+
+        echo "::error title=No linked issue::Link an issue in the Development sidebar or add 'Closes #<issue>' to the PR description, then re-run this check."
+        exit 1

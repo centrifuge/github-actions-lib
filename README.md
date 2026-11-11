@@ -20,6 +20,7 @@ actions/
   setup-app/                    Node + pnpm bootstrap (pnpm version from package.json "packageManager")
   build-app/                    build + artifact upload (+ release bundle upload on prerelease)
   deploy-app/                   wrangler deploy per environment (preview/nightly/demo/staging/prod)
+  linked-issue/                 fails a PR with no linked issue (IT compliance control; any repo)
 lighthouserc.json               shared LHCI config used by app-build-deploy-dev's performance job
 ```
 
@@ -309,3 +310,33 @@ workflow run immediately:
 
 - Consumers reference this library by full commit SHA. To take a change, bump
   the SHA in the caller workflows (and the `# lib-pin` marker stays as is).
+
+## Linked-issue check
+
+`actions/linked-issue` fails a pull request that has no linked issue. A closing
+keyword in the PR description (`Closes #123`) and an issue linked in the
+Development sidebar both count; Dependabot PRs are exempt. It is not tied to the
+app pipelines, so any repo can use it. Add a workflow like this:
+
+```yaml
+name: Compliance
+on:
+  pull_request:
+    types: [opened, reopened, edited, synchronize, ready_for_review]
+concurrency:
+  group: compliance-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+permissions:
+  contents: read
+  pull-requests: read
+jobs:
+  linked-issue:
+    name: Linked issue
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - uses: centrifuge/github-actions-lib/actions/linked-issue@<full-commit-sha> # lib-pin
+```
+
+The check shows up as **Compliance / Linked issue**. Linking in the sidebar fires
+no webhook, so re-run the check afterwards.
