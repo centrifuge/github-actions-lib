@@ -329,6 +329,7 @@ concurrency:
 permissions:
   contents: read
   pull-requests: read
+  issues: read # without it the linked issue is hidden and the check always fails
 jobs:
   linked-issue:
     name: Linked issue
