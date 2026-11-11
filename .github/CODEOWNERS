@@ -20,6 +20,7 @@
 /actions/build-app/                              @gpmayorga @hieronx @gregory-kf
 /actions/deploy-app/                             @gpmayorga @hieronx @gregory-kf
 /actions/setup-app/                              @gpmayorga @hieronx @gregory-kf
+/actions/linked-issue/                           @gpmayorga @hieronx @gregory-kf
 
 # --- Shared config consumed by every pipeline ---
 /lighthouserc.json                               @gpmayorga @hieronx @gregory-kf
