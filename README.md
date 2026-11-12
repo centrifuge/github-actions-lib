@@ -315,8 +315,9 @@ workflow run immediately:
 
 `actions/linked-issue` fails a pull request that has no linked issue. A closing
 keyword in the PR description (`Closes #123`) and an issue linked in the
-Development sidebar both count; Dependabot PRs are exempt. It is not tied to the
-app pipelines, so any repo can use it. Add a workflow like this:
+Development sidebar both count. Dependabot PRs are exempt by default (see
+[Exempt authors](#exempt-authors)). It is not tied to the app pipelines, so any
+repo can use it. Add a workflow like this:
 
 ```yaml
 name: Compliance
@@ -340,3 +341,20 @@ jobs:
 
 The check shows up as **Compliance / Linked issue**. Linking in the sidebar fires
 no webhook, so re-run the check afterwards.
+
+### Exempt authors
+
+| Input | Default | Meaning |
+|---|---|---|
+| `exempt-authors` | `dependabot[bot]` | Comma-separated pull request author logins that pass without a linked issue, as they appear in the event payload (bots end in `[bot]`). |
+
+Matching is exact and case-insensitive. A match exits 0 without querying
+GitHub. Every exemption is the calling repo's decision, written in its
+workflow; the action exempts only the logins in this input. Setting the input
+replaces the default, so list `dependabot[bot]` again when it should stay exempt:
+
+```yaml
+      - uses: centrifuge/github-actions-lib/actions/linked-issue@<full-commit-sha> # lib-pin
+        with:
+          exempt-authors: 'dependabot[bot],api-gitops[bot]'
+```
