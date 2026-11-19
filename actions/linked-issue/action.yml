@@ -1,7 +1,8 @@
 name: 'Require a linked issue'
 description: >-
   Fails a pull request that has no linked issue (IT compliance control: every
-  change traces back to an issue). Dependabot pull requests are exempt.
+  change traces back to an issue). Pull requests by the logins in
+  `exempt-authors` (default: `dependabot[bot]`) are exempt.
 
 # Asks GitHub for the PR's `closingIssuesReferences`, the same list that drives
 # the Development sidebar. A closing keyword in the PR body (`Closes #123`) and
@@ -19,6 +20,13 @@ inputs:
     description: 'Token used to read the pull request (needs pull-requests: read)'
     required: false
     default: ${{ github.token }}
+  exempt-authors:
+    description: >-
+      Comma-separated pull request author logins that pass without a linked
+      issue, as they appear in the event payload (bots end in `[bot]`).
+      Case-insensitive. Replaces the default when set.
+    required: false
+    default: 'dependabot[bot]'
 
 runs:
   using: 'composite'
@@ -30,12 +38,19 @@ runs:
         REPO: ${{ github.repository }}
         PR_NUMBER: ${{ github.event.pull_request.number }}
         PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+        EXEMPT_AUTHORS: ${{ inputs.exempt-authors }}
       run: |
-        # Dependabot cannot link an issue; the dependency bump is its own record.
-        if [ "$PR_AUTHOR" = "dependabot[bot]" ]; then
-          echo "Dependabot PR: exempt."
-          exit 0
-        fi
+        # Bots such as Dependabot cannot link an issue; the caller lists which logins pass.
+        IFS=',' read -ra exempt <<< "$EXEMPT_AUTHORS"
+        for login in "${exempt[@]}"; do
+          # trim surrounding spaces so "a, b" matches
+          login="${login#"${login%%[![:space:]]*}"}"
+          login="${login%"${login##*[![:space:]]}"}"
+          if [ -n "$login" ] && [ "${PR_AUTHOR,,}" = "${login,,}" ]; then
+            echo "Exempt author: ${PR_AUTHOR}."
+            exit 0
+          fi
+        done
 
         owner="${REPO%%/*}"
         name="${REPO##*/}"
