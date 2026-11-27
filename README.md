@@ -246,9 +246,13 @@ targets, not for behavioral flags.
   top-level job in each app's `ci-checks.yml` caller, not inside
   `app-ci-checks.yml`. Compose via composite *actions* (as the build/deploy
   workflows do), not nested `workflow_call`s.
-- **Pinning**: consumers reference `@main`. If your repo runs pinact, add an
-  ignore for this library (see the apps' `.pinact.yaml`); everything *inside*
-  this library is SHA-pinned and `lib-ci.yml` enforces that.
+- **Pinning**: consumers reference a full commit SHA with a `# lib-pin`
+  comment, never `@main`, so a library merge reaches a pipeline only when the
+  consumer bumps its pins. Bump every `# lib-pin` that names a changed workflow
+  or action, including direct composite refs such as `actions/linked-issue` and
+  `actions/setup-app`. If your repo runs pinact, add an ignore for this library
+  (see the apps' `.pinact.yaml`); everything *inside* this library is
+  SHA-pinned and `lib-ci.yml` enforces that.
 - **`AUTHORIZED_DEPLOYERS` repository variable** (required for promotion and
   rollback): comma-separated GitHub usernames, matched case-insensitively
   against the dispatching actor. Empty or unset **fails closed** — nobody can

@@ -150,6 +150,14 @@ lighthouserc.json               # shared LHCI config (consumed by app-build-depl
    caller at your branch's commit SHA in a draft PR, then revert the ref to the
    reviewed pin before merging.
 5. Tag notable states (`v1.0.0`, …) as human-readable restore points.
+6. After the merge, bump the pins in both app repos (`apps-invest`,
+   `apps-management`) in a reviewed PR each, or the change reaches no
+   pipeline. Move every `# lib-pin` that names a workflow or action the merge
+   changed, not only the pipeline callers: `compliance.yml` pins
+   `actions/linked-issue`, and some jobs pin `actions/setup-app` directly. Check
+   with `git grep '# lib-pin' -- .github` in each app. A contract change (a new
+   required input or secret, a dropped permission) lands in the same app PR as
+   the bump.
 
 ## Conventions
 
