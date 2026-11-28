@@ -25,7 +25,7 @@ name: App Rollback
 # pipeline-only tool versions". Keep in sync with actions/deploy-app's
 # wrangler-version default; both are hardcoded, not linked mechanically.
 env:
-  WRANGLER_VERSION: '4.111.0'
+  WRANGLER_VERSION: '4.156.0'
 
 on:
   workflow_call:

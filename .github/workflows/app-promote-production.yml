@@ -46,7 +46,7 @@ name: App Promote Production
 # wrangler-version default and app-rollback.yml; all are hardcoded, not
 # linked mechanically.
 env:
-  WRANGLER_VERSION: '4.111.0'
+  WRANGLER_VERSION: '4.156.0'
 
 on:
   workflow_call:
